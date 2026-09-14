@@ -1,0 +1,2353 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Gee Tee</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+  <!-- ===== Add to Home Screen (iOS + Android/Chrome) ===== -->
+  <!-- Android/Chrome: reads manifest.json for name, icons, and
+       display:"standalone" (no address bar) when added to the home
+       screen. -->
+  <link rel="manifest" href="/manifest.json">
+
+  <!-- Favicons (browser tab icon) -->
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+
+  <!-- iOS Safari: "Add to Home Screen" doesn't read manifest.json for
+       icons/standalone mode — it needs these specific meta/link tags
+       instead. All three are required for a proper app-like result:
+       apple-touch-icon for the home screen icon, web-app-capable to
+       launch without Safari's browser chrome, and web-app-title for
+       the name shown under the icon (falls back to the page <title>
+       otherwise, which is longer than you'd want under an icon). -->
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="geetee.">
+
+  <!-- Android/Chrome equivalent of apple-mobile-web-app-capable — most
+       modern Chrome versions get this from the manifest's display
+       property instead, but older Android WebViews still look for
+       this meta tag directly. -->
+  <meta name="mobile-web-app-capable" content="yes">
+
+  <!-- Browser chrome (status bar / task switcher) tint — matches this
+       app's --bg-base light/dark values from the stylesheet below, so
+       the OS-level chrome around the app doesn't clash with whichever
+       theme is active. -->
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F2F2F7">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
+
+  <style>
+    /*
+      DESIGN TOKENS — "iOS 18 Glass"
+      Frosted-glass cards floating over a soft gradient canvas, San
+      Francisco-style type scale, pill-shaped controls, and Apple's
+      semantic system colors. Every class name below is still what the
+      JS in this file generates — only the visual treatment changed.
+    */
+    :root {
+      --ios-blue: #007AFF;
+      --ios-blue-dark: #0062CC;
+      --ios-green: #34C759;
+      --ios-red: #FF3B30;
+      --ios-orange: #FF9500;
+      --ios-purple: #AF52DE;
+      --bg-base: #F2F2F7;
+      --card-bg: rgba(255,255,255,0.68);
+      --card-border: rgba(255,255,255,0.55);
+      --fill-secondary: rgba(118,118,128,0.12);
+      --text-primary: #1C1C1E;
+      --text-secondary: rgba(60,60,67,0.6);
+      --text-tertiary: rgba(60,60,67,0.4);
+      --hairline: rgba(60,60,67,0.13);
+      --font-system: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
+      --brandbar-h: 56px;
+      --brandbar-bg: rgba(242,242,247,0.75);
+      --modal-bg: #fafaff;
+      --tab-active-bg: #ffffff;
+    }
+    /*
+      DARK MODE — "iOS 18 Glass, Dark"
+      Same tokens, dark values. Applied by setting data-theme="dark" on
+      <html> (see the theme-init script in <head> and applyTheme_() in
+      the main script below) — every rule in this file already reads
+      colors through the custom properties above, so overriding them
+      here is the entire dark-mode implementation; no rule below this
+      block needs to know about themes at all.
+    */
+    html[data-theme="dark"] {
+      --ios-blue: #0A84FF;
+      --ios-blue-dark: #409CFF;
+      --ios-green: #30D158;
+      --ios-red: #FF453A;
+      --ios-orange: #FF9F0A;
+      --ios-purple: #BF5AF2;
+      --bg-base: #000000;
+      --card-bg: rgba(28,28,30,0.72);
+      --card-border: rgba(255,255,255,0.08);
+      --fill-secondary: rgba(120,120,128,0.24);
+      --text-primary: #FFFFFF;
+      --text-secondary: rgba(235,235,245,0.6);
+      --text-tertiary: rgba(235,235,245,0.4);
+      --hairline: rgba(84,84,88,0.65);
+      --brandbar-bg: rgba(0,0,0,0.75);
+      --modal-bg: #1C1C1E;
+      --tab-active-bg: #3A3A3C;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html { height: 100%; }
+    body {
+      font-family: var(--font-system);
+      margin: 0;
+      min-height: 100%;
+      color: var(--text-primary);
+      background-color: var(--bg-base);
+      /* Soft mesh-gradient canvas — the "wallpaper" the glass cards float over */
+      background-image:
+        radial-gradient(circle at 12% 8%, rgba(0,122,255,0.16), transparent 42%),
+        radial-gradient(circle at 88% 18%, rgba(175,82,222,0.14), transparent 40%),
+        radial-gradient(circle at 20% 92%, rgba(52,199,89,0.14), transparent 42%),
+        radial-gradient(circle at 90% 88%, rgba(255,149,0,0.10), transparent 40%);
+      background-attachment: fixed;
+    }
+
+    /* ---- Persistent brand strip: floating glass navbar, present on every screen ---- */
+    .brandbar {
+      position: sticky; top: 0; z-index: 10;
+      background: var(--brandbar-bg);
+      -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--hairline);
+      padding: 13px 16px;
+    }
+    .brandbar-inner {
+      max-width: 480px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+    .brandbar-left { display: flex; align-items: center; gap: 8px; }
+    .brandmark {
+      font-size: 17px; font-weight: 700; letter-spacing: -0.2px; color: var(--text-primary);
+    }
+    .brand-logo {
+      height: 26px; width: auto; display: block;
+    }
+    .login-brand {
+      display: flex; align-items: center; justify-content: center;
+      gap: 10px; margin-bottom: 22px;
+    }
+    .login-logo {
+      height: 34px; width: auto; display: block;
+    }
+    .login-brand h1 { margin: 0; }
+    /* The source mark is solid black on a transparent background — in
+       dark mode that would vanish against the near-black brandbar, so
+       flip it to white via filter instead of shipping a second image. */
+    html[data-theme="dark"] .brand-logo,
+    html[data-theme="dark"] .login-logo {
+      filter: invert(1);
+    }
+
+    .center-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: calc(100vh - var(--brandbar-h));
+      padding: 16px;
+    }
+    .card {
+      background: var(--card-bg);
+      -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px);
+      padding: 30px 26px;
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+      width: 100%;
+      max-width: 380px;
+    }
+    h1 {
+      font-size: 26px; font-weight: 800; margin: 0 0 6px; letter-spacing: -0.4px; color: var(--text-primary);
+    }
+    h2 {
+      font-size: 20px; font-weight: 700; margin: 0 0 14px; letter-spacing: -0.2px; color: var(--text-primary);
+      display: flex; align-items: center; gap: 8px;
+    }
+    p.sub { font-size: 15px; color: var(--text-secondary); margin: 0 0 20px; line-height: 1.4; }
+    label { display: block; font-size: 13px; margin-bottom: 6px; color: var(--text-secondary); font-weight: 500; }
+    input, select {
+      width: 100%; min-height: 44px; padding: 10px 14px; margin-bottom: 16px;
+      border: none; border-radius: 14px;
+      background: var(--fill-secondary); font-size: 16px; font-family: var(--font-system); color: var(--text-primary);
+      transition: box-shadow 0.15s ease;
+    }
+    input:focus, select:focus {
+      outline: none; box-shadow: 0 0 0 2px var(--ios-blue);
+    }
+    input[type="number"], input[type="date"] { font-variant-numeric: tabular-nums; }
+    button {
+      width: 100%; min-height: 44px; padding: 11px; background: var(--ios-blue); color: #fff;
+      border: none; border-radius: 9999px;
+      font-family: var(--font-system); font-size: 17px; font-weight: 600; cursor: pointer;
+      transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.2s ease;
+    }
+    button:hover { background: var(--ios-blue-dark); box-shadow: 0 6px 18px rgba(0,122,255,0.35); transform: translateY(-1px); }
+    button:active { transform: scale(0.97) translateY(0); }
+    button.secondary {
+      background: var(--fill-secondary); color: var(--ios-blue); margin-top: 8px;
+    }
+    button.secondary:hover { background: rgba(118,118,128,0.2); }
+    button:disabled { background: var(--fill-secondary); color: var(--text-tertiary); cursor: not-allowed; transform: none; }
+    #error, .err { color: var(--ios-red); font-size: 13px; margin-top: 10px; min-height: 16px; }
+    .app-shell { max-width: 480px; margin: 0 auto; padding: 18px 16px 40px; }
+    .topbar {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 18px;
+    }
+    .topbar span { font-size: 15px; color: var(--text-secondary); font-weight: 500; }
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+    .stat-card {
+      background: var(--card-bg);
+      -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+      border: 1px solid var(--card-border);
+      border-radius: 20px; padding: 16px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    }
+    .stat-card .label { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+    .stat-card .value { font-size: 22px; font-weight: 700; margin-top: 6px; color: var(--text-primary); font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
+    .section {
+      background: var(--card-bg);
+      -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+      border: 1px solid var(--card-border);
+      border-radius: 22px; padding: 18px; margin-bottom: 16px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    }
+    .loan-row, .div-row {
+      display: flex; justify-content: space-between; align-items: center; padding: 10px 0;
+      border-bottom: 1px solid var(--hairline); font-size: 15px;
+    }
+    .loan-row:last-child, .div-row:last-child { border-bottom: none; }
+    .badge {
+      display: inline-block;
+      font-size: 12px; padding: 4px 12px; border-radius: 9999px; font-weight: 600;
+    }
+    .badge.Pending { color: #fff; background: var(--ios-orange); }
+    .badge.Approved, .badge.Active, .badge.Verified { color: #fff; background: var(--ios-green); }
+    .badge.Rejected { color: #fff; background: var(--ios-red); }
+    .badge.Paid { color: #fff; background: var(--ios-blue); }
+    .badge.Overdue { color: #fff; background: var(--ios-red); }
+    .badge.Upcoming { color: var(--text-secondary); background: var(--fill-secondary); }
+    .calc-box {
+      background: var(--fill-secondary);
+      border-radius: 16px; padding: 14px; margin: 12px 0; font-size: 14px;
+    }
+    .calc-box .row { display: flex; justify-content: space-between; padding: 4px 0; font-variant-numeric: tabular-nums; }
+    .calc-box .row.total { font-weight: 700; border-top: 1px solid var(--hairline); margin-top: 6px; padding-top: 8px; color: var(--ios-blue); }
+    .hint { font-size: 12.5px; color: var(--text-secondary); margin-top: -10px; margin-bottom: 14px; }
+    .link-btn {
+      background: none; border: none; color: var(--ios-blue); font-size: 15px;
+      cursor: pointer; width: auto; padding: 5px 10px; min-height: 0;
+      font-weight: 500; font-family: var(--font-system);
+      border-radius: 8px; transition: background 0.15s ease, color 0.15s ease;
+    }
+    .link-btn:hover { background: var(--ios-blue-dark); color: #fff; }
+    .link-btn:active { background: var(--ios-blue); color: #fff; }
+    .password-field { position: relative; margin-bottom: 16px; }
+    .password-field input { margin-bottom: 0; padding-right: 42px; }
+    .password-toggle {
+      position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; width: 32px; height: 32px; min-height: 0;
+      padding: 0; display: flex; align-items: center; justify-content: center;
+      color: var(--text-secondary); cursor: pointer;
+      transition: color 0.15s ease;
+    }
+    .password-toggle:hover {
+      transform: translateY(-50%); background: none; box-shadow: none; color: var(--text-primary);
+    }
+    .password-toggle:active { transform: translateY(-50%) scale(0.9); }
+    .icon-btn {
+      width: 30px; height: 30px; min-height: 0; padding: 0;
+      border-radius: 8px; border: none; background: var(--fill-secondary);
+      color: var(--text-secondary); display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: background 0.15s ease, color 0.15s ease; flex-shrink: 0;
+    }
+    .icon-btn:hover { background: var(--ios-blue-dark); color: #fff; }
+    .icon-btn.danger:hover { background: var(--ios-red); color: #fff; }
+    .icon-btn.warn:hover { background: var(--ios-orange); color: #fff; }
+    .icon-btn.success:hover { background: var(--ios-green); color: #fff; }
+    .circle-btn {
+      width: 44px; height: 44px; min-height: 0; padding: 0;
+      border-radius: 50%; border: none; cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.2s ease;
+    }
+    .circle-btn:hover { filter: brightness(0.92); box-shadow: 0 4px 14px rgba(0,0,0,0.25); transform: translateY(-1px); }
+    .circle-btn:active { transform: scale(0.94); }
+    .circle-btn.blue { background: var(--ios-blue); color: #fff; }
+    .circle-btn.gray { background: var(--fill-secondary); color: var(--text-primary); }
+    .circle-btn.green { background: var(--ios-green); color: #fff; }
+    .empty { font-size: 14px; color: var(--text-tertiary); text-align: center; padding: 16px 0; }
+    html { scroll-behavior: smooth; }
+    #app { transition: opacity 0.22s ease; opacity: 1; }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .card, .section, .approval-card { animation: fadeInUp 0.45s cubic-bezier(.16,.8,.28,1) both; }
+    .stat-card { animation: fadeInUp 0.4s ease-out both; }
+    .stat-grid .stat-card:nth-child(1) { animation-delay: 0s; }
+    .stat-grid .stat-card:nth-child(2) { animation-delay: 0.08s; }
+
+    /* ---- iOS-style spinner (12 fading blades) ---- */
+    .spinner-wrap { display: flex; align-items: center; justify-content: center; padding: 26px 0; }
+    .spinner { position: relative; width: 32px; height: 32px; }
+    .spinner .spinner-blade {
+      position: absolute; left: 46.5%; top: 37%;
+      width: 7%; height: 27%; border-radius: 30%;
+      background-color: var(--ios-blue);
+      transform-origin: center -0.2em;
+      animation: spinner-fade 1s infinite linear;
+    }
+    .spinner .spinner-blade:nth-child(1) { animation-delay: -1.1458333333s; transform: rotate(0deg); }
+    .spinner .spinner-blade:nth-child(2) { animation-delay: -1.0416666667s; transform: rotate(30deg); }
+    .spinner .spinner-blade:nth-child(3) { animation-delay: -0.9375s; transform: rotate(60deg); }
+    .spinner .spinner-blade:nth-child(4) { animation-delay: -0.8333333333s; transform: rotate(90deg); }
+    .spinner .spinner-blade:nth-child(5) { animation-delay: -0.7291666667s; transform: rotate(120deg); }
+    .spinner .spinner-blade:nth-child(6) { animation-delay: -0.625s; transform: rotate(150deg); }
+    .spinner .spinner-blade:nth-child(7) { animation-delay: -0.5208333333s; transform: rotate(180deg); }
+    .spinner .spinner-blade:nth-child(8) { animation-delay: -0.4166666667s; transform: rotate(210deg); }
+    .spinner .spinner-blade:nth-child(9) { animation-delay: -0.3125s; transform: rotate(240deg); }
+    .spinner .spinner-blade:nth-child(10) { animation-delay: -0.2083333333s; transform: rotate(270deg); }
+    .spinner .spinner-blade:nth-child(11) { animation-delay: -0.1041666667s; transform: rotate(300deg); }
+    .spinner .spinner-blade:nth-child(12) { animation-delay: 0s; transform: rotate(330deg); }
+    @keyframes spinner-fade { 0% { opacity: 0.85; } 50% { opacity: 0.25; } 100% { opacity: 0.25; } }
+
+    .nav-list {
+      background: var(--card-bg);
+      -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+      border: 1px solid var(--card-border);
+      border-radius: 22px; overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    }
+    .nav-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 16px; cursor: pointer;
+      border-bottom: 1px solid var(--hairline);
+      transition: background 0.15s ease, box-shadow 0.15s ease;
+      animation: fadeInUp 0.4s ease-out both;
+    }
+    .nav-row:last-child { border-bottom: none; }
+    .nav-row:hover { background: rgba(118,118,128,0.1); box-shadow: inset 0 0 0 1px rgba(0,122,255,0.15); }
+    .nav-row:active { background: rgba(118,118,128,0.16); }
+    .nav-row:nth-child(1) { animation-delay: 0s; }
+    .nav-row:nth-child(2) { animation-delay: 0.06s; }
+    .nav-row:nth-child(3) { animation-delay: 0.12s; }
+    .nav-row:nth-child(4) { animation-delay: 0.18s; }
+    .nav-row:nth-child(5) { animation-delay: 0.24s; }
+    .nav-row:nth-child(6) { animation-delay: 0.3s; }
+    .nav-row .nav-icon { margin-bottom: 0; flex-shrink: 0; }
+    .nav-row-text { flex: 1; min-width: 0; }
+    .nav-row-chevron { color: var(--text-tertiary); flex-shrink: 0; display: flex; }
+    .nav-icon {
+      width: 36px; height: 36px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 10px;
+    }
+    .nav-title { font-size: 15px; font-weight: 600; margin-bottom: 2px; letter-spacing: -0.1px; }
+    .nav-sub { font-size: 12.5px; color: var(--text-secondary); }
+    /* ---- Settings row (label + trailing control, e.g. the Dark Mode switch) ---- */
+    .switch-row { display: flex; align-items: center; gap: 12px; }
+    .switch {
+      position: relative; display: inline-block;
+      width: 51px; height: 31px; flex-shrink: 0;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .switch-slider {
+      position: absolute; inset: 0; cursor: pointer;
+      background: var(--fill-secondary); border-radius: 9999px;
+      transition: background 0.2s ease;
+    }
+    .switch-slider::before {
+      content: ""; position: absolute; left: 2px; top: 2px;
+      width: 27px; height: 27px; border-radius: 50%;
+      background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      transition: transform 0.2s ease;
+    }
+    .switch input:checked + .switch-slider { background: var(--ios-green); }
+    .switch input:checked + .switch-slider::before { transform: translateX(20px); }
+    .switch input:focus-visible + .switch-slider { box-shadow: 0 0 0 2px var(--ios-blue); }
+    .approval-card { margin-bottom: 14px; }
+    .approval-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+    .member-context {
+      font-size: 12.5px; color: var(--text-secondary); background: var(--fill-secondary);
+      border-radius: 12px; padding: 9px 12px; margin: 10px 0;
+    }
+    .approval-actions { display: flex; gap: 10px; margin-top: 12px; }
+    .approval-actions button { margin: 0; }
+    /* iOS-style segmented control */
+    .tabs {
+      display: flex; gap: 2px; margin-bottom: 16px;
+      background: var(--fill-secondary); border-radius: 12px; padding: 2px;
+    }
+    .tab {
+      flex: 1; padding: 8px; background: transparent; color: var(--text-secondary);
+      border: none; border-radius: 10px;
+      font-family: var(--font-system); font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .tab.active { background: var(--tab-active-bg); color: var(--text-primary); box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
+    .bulk-row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px;
+      padding: 12px; background: var(--fill-secondary); border-radius: 16px;
+    }
+    .bulk-row select, .bulk-row input { margin-bottom: 0; grid-column: span 1; }
+    .bulk-row button { grid-column: span 2; width: auto; justify-self: start; min-height: 36px; padding: 8px 18px; font-size: 14px; }
+    @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes modalPop {
+      from { opacity: 0; transform: scale(0.94) translateY(6px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+      -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000; padding: 20px;
+      animation: modalFadeIn 0.15s ease-out both;
+    }
+    .modal-card {
+      background: var(--modal-bg);
+      border: 1px solid var(--card-border); border-radius: 22px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+      padding: 26px 24px; width: 100%; max-width: 340px;
+      text-align: center;
+      animation: modalPop 0.18s cubic-bezier(.2,.8,.3,1.2) both;
+    }
+    .modal-card h2 { justify-content: center; border-bottom: none; padding-bottom: 0; margin-bottom: 8px; }
+    .modal-card p { font-size: 14px; color: var(--text-secondary); margin: 0 0 22px; line-height: 1.4; }
+    .modal-card button { margin-bottom: 10px; }
+    .modal-card button:last-child { margin-bottom: 0; }
+
+    @media print {
+      .brandbar, .no-print { display: none !important; }
+      body { background: #fff !important; }
+      .app-shell { max-width: 100%; padding: 0; }
+      .section {
+        background: #fff !important; box-shadow: none !important; border: none !important;
+        -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; }
+    }
+  </style>
+  <script>
+    // Applies the saved theme (or the OS preference, if nothing's saved
+    // yet) BEFORE the page paints, so there's no flash of the light
+    // theme on load for someone who has dark mode on. The real toggle
+    // logic (applyTheme_, toggleDarkMode) lives in the main script at
+    // the bottom of <body> — this is just the earliest possible copy
+    // of "read it and set the attribute."
+    (function () {
+      try {
+        var stored = localStorage.getItem('coop_theme');
+        var theme = stored || ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) { /* localStorage unavailable (e.g. private browsing) — defaults to light */ }
+    })();
+  </script>
+</head>
+<body>
+  <header class="brandbar">
+    <div class="brandbar-inner">
+      <div class="brandbar-left">
+        <img id="brandLogo" class="brand-logo" src="/logo.png" alt="" style="display:none;">
+        <span class="brandmark">Gee Tee</span>
+      </div>
+      <button id="brandLogoutBtn" class="link-btn" onclick="logoutAndReload()" style="display:none;">Log out</button>
+    </div>
+  </header>
+  <div id="app"></div>
+  <div id="modalRoot"></div>
+
+
+  <script>
+    // ---------- Server connection ----------
+    // This page is served from tfadmin.alvinsalazar.com, NOT from Apps Script,
+    // so google.script.run doesn't exist here — it's a browser API that
+    // Apps Script's HtmlService injects automatically, and only works for
+    // pages Apps Script itself serves. This shim reproduces the exact
+    // same chainable interface (.withSuccessHandler().withFailureHandler()
+    // .functionName(args)) but sends a real fetch() to the Apps Script
+    // JSON API underneath. Every other line of app code below is
+    // unchanged from the Apps Script version.
+    const API_URL = 'https://script.google.com/macros/s/AKfycby_B7b6ONsrrmslGhbqwFzwLhGEVDKe0PifRA85MSm9VIjhMCxKxsbU33xUpJgpHd3MEQ/exec';
+
+    // Apps Script enforces a short-window rate limit on how many script
+    // executions a single deployment can handle in quick succession. A
+    // burst of actions (create a loan, jump screens, log a repayment...)
+    // can trip it — Google then rejects the request with something that
+    // isn't valid JSON, which makes res.json() below throw. That's not a
+    // real failure, just a "try again in a moment" situation, so retry
+    // automatically with a short backoff before actually giving up.
+    function fetchWithRetry_(url, options, retriesLeft) {
+      return fetch(url, options)
+        .then(function (res) { return res.json(); })
+        .catch(function (err) {
+          if (retriesLeft > 0) {
+            return new Promise(function (resolve) {
+              setTimeout(function () {
+                resolve(fetchWithRetry_(url, options, retriesLeft - 1));
+              }, 1000);
+            });
+          }
+          throw err;
+        });
+    }
+
+    function buildRunner(successHandler, failureHandler) {
+      return new Proxy({}, {
+        get: function (target, prop) {
+          if (prop === 'withSuccessHandler') {
+            return function (fn) { return buildRunner(fn, failureHandler); };
+          }
+          if (prop === 'withFailureHandler') {
+            return function (fn) { return buildRunner(successHandler, fn); };
+          }
+          // Any other property access is the server function name to call.
+          return function () {
+            const args = Array.prototype.slice.call(arguments);
+            // Content-Type text/plain keeps this a "simple request" so the
+            // browser skips the CORS preflight (OPTIONS) that Apps Script
+            // web apps can't respond to properly.
+            fetchWithRetry_(API_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: prop, params: args })
+            }, 2)
+              .then(function (data) {
+                if (successHandler) successHandler(data);
+              })
+              .catch(function (err) {
+                if (failureHandler) failureHandler(err);
+              });
+          };
+        }
+      });
+    }
+
+    const google = { script: { run: buildRunner(null, null) } };
+
+    // Registering the service worker (sw.js) is what lets Android/Chrome
+    // treat this as an installable app — see the comment at the top of
+    // sw.js for exactly what it does (and deliberately doesn't do).
+    // iOS's Add to Home Screen doesn't use this at all (that's the
+    // apple-* meta tags in <head> instead), so this block is a no-op
+    // there — 'serviceWorker' just won't be in navigator on older iOS
+    // Safari versions, and the check below skips it cleanly.
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/sw.js').catch(function (err) {
+          console.warn('Service worker registration failed:', err);
+        });
+      });
+    }
+
+    // ---------- App state ----------
+    let TOKEN = sessionStorage.getItem('coop_token') || null;
+    let ROLE = sessionStorage.getItem('coop_role') || null;
+    let NAME = sessionStorage.getItem('coop_name') || null;
+
+    window.addEventListener('DOMContentLoaded', function () {
+      if (TOKEN) {
+        google.script.run
+          .withSuccessHandler(function (res) {
+            if (res.success) { route(); } else { clearSession(); renderLogin(); }
+          })
+          .withFailureHandler(function () { clearSession(); renderLogin(); })
+          .validateSession(TOKEN);
+      } else {
+        renderLogin();
+      }
+    });
+
+    function route() {
+      setBrandbarLoggedIn_(true);
+      if (ROLE === 'Admin') {
+        renderAdminHome();
+      } else {
+        renderMemberDashboard();
+      }
+    }
+
+    // Shows/hides the header logo and Log out button in the persistent
+    // brandbar. Called from route() (fresh login or restored session)
+    // and from clearSession() (logout, expired/invalid session) — so
+    // every path that ends in "logged in" or "logged out" updates the
+    // header the same way, with nothing to remember at each call site.
+    function setBrandbarLoggedIn_(isLoggedIn) {
+      document.getElementById('brandLogo').style.display = isLoggedIn ? '' : 'none';
+      document.getElementById('brandLogoutBtn').style.display = isLoggedIn ? '' : 'none';
+    }
+
+    function clearSession() {
+      sessionStorage.removeItem('coop_token');
+      sessionStorage.removeItem('coop_role');
+      sessionStorage.removeItem('coop_name');
+      TOKEN = null; ROLE = null; NAME = null;
+      setBrandbarLoggedIn_(false);
+    }
+
+    function logoutAndReload() {
+      if (TOKEN) google.script.run.logout(TOKEN);
+      clearSession();
+      renderLogin();
+    }
+
+    function fmtMoney(n) {
+      n = Number(n) || 0;
+      return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function fmtDate(d) {
+      if (!d) return '';
+      const dt = new Date(d);
+      if (isNaN(dt)) return d;
+      return dt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    }
+
+    // Live "#,000.00" formatting for Amount fields as the user types.
+    // These fields are type="text" (not type="number") since browsers
+    // reject commas in a number input — the numeric-only keyboard on
+    // mobile still shows via inputmode="decimal".
+    function formatAmountOnInput(e) {
+      const el = e.target;
+      let raw = el.value.replace(/[^0-9.]/g, '');
+      const firstDot = raw.indexOf('.');
+      if (firstDot !== -1) {
+        raw = raw.slice(0, firstDot + 1) + raw.slice(firstDot + 1).replace(/\./g, '');
+      }
+      const parts = raw.split('.');
+      const intPart = parts[0] ? parts[0].replace(/^0+(?=\d)/, '') : '';
+      const decPart = parts.length > 1 ? parts[1].slice(0, 2) : undefined;
+      const formattedInt = intPart ? Number(intPart).toLocaleString('en-US') : '';
+      el.value = decPart !== undefined ? formattedInt + '.' + decPart : formattedInt;
+    }
+
+    // Reads an amount field's value with the display commas stripped,
+    // ready to send to the server or use in a calculation.
+    function parseAmountValue(id) {
+      const el = document.getElementById(id);
+      if (!el) return '';
+      return (el.value || '').replace(/,/g, '');
+    }
+
+    // Guards against a race condition: an async google.script.run response
+    // arriving AFTER the user has already navigated to a different screen
+    // (swapApp replaced #app's content in the meantime). Without this, the
+    // late response's callback would write into a detached DOM node from
+    // the old screen — usually invisible, but can surface as a spurious
+    // "Could not load..." error if the write happens to land somewhere
+    // still-visible. isConnected is a standard DOM property: true only if
+    // the element is still actually part of the live page.
+    function safeSetHTML(el, html) {
+      if (el && el.isConnected) el.innerHTML = html;
+    }
+
+    // ---------- In-app modal (replaces native confirm()/alert()) ----------
+    function showConfirmModal(opts) {
+      const root = document.getElementById('modalRoot');
+      const confirmStyle = opts.danger ? 'background:var(--ios-red);border-color:var(--ios-red);' : '';
+      root.innerHTML =
+        '<div class="modal-overlay" id="modalOverlay">' +
+        '<div class="modal-card">' +
+        '<h2>' + (opts.title || 'Are you sure?') + '</h2>' +
+        '<p>' + opts.message + '</p>' +
+        '<button id="modalConfirmBtn" style="' + confirmStyle + '">' + (opts.confirmLabel || 'Confirm') + '</button>' +
+        '<button class="secondary" id="modalCancelBtn">' + (opts.cancelLabel || 'Cancel') + '</button>' +
+        '</div></div>';
+
+      document.getElementById('modalCancelBtn').onclick = closeModal;
+      document.getElementById('modalOverlay').addEventListener('click', function (e) {
+        if (e.target.id === 'modalOverlay') closeModal();
+      });
+      document.getElementById('modalConfirmBtn').onclick = function () {
+        closeModal();
+        if (opts.onConfirm) opts.onConfirm();
+      };
+    }
+
+    function showInfoModal(message, title) {
+      const root = document.getElementById('modalRoot');
+      root.innerHTML =
+        '<div class="modal-overlay" id="modalOverlay">' +
+        '<div class="modal-card">' +
+        '<h2>' + (title || 'Notice') + '</h2>' +
+        '<p>' + message + '</p>' +
+        '<button id="modalOkBtn">OK</button>' +
+        '</div></div>';
+      document.getElementById('modalOkBtn').onclick = closeModal;
+      document.getElementById('modalOverlay').addEventListener('click', function (e) {
+        if (e.target.id === 'modalOverlay') closeModal();
+      });
+    }
+
+    function closeModal() {
+      document.getElementById('modalRoot').innerHTML = '';
+    }
+
+    // ---------- iOS-style colored icon chips (monoline, 1.8px stroke) ----------
+    const ICONS = {
+      check: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+      banknote: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>',
+      wallet: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>',
+      trending: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
+      settings: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+      chevron: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+      users: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+      eye: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>',
+      eyeOff: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 11 7 11 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 1 12s4 7 11 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></svg>',
+      pencil: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>',
+      trash: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>',
+      userX: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/></svg>',
+      plus: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+      minus: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+      fileText: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>',
+      close: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+      restore: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
+      moon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>'
+    };
+    function iconChip(iconKey, colorHex) {
+      // colorHex + '1A' appends ~10% alpha as an 8-digit hex color for the chip background
+      return '<div class="nav-icon" style="background:' + colorHex + '1A;color:' + colorHex + '">' + ICONS[iconKey] + '</div>';
+    }
+
+    // ---------- APPEARANCE (Dark Mode) ----------
+    // Applied via a data-theme attribute on <html>, which every CSS
+    // custom property in <style> is keyed off of — see the
+    // html[data-theme="dark"] block at the top of the stylesheet.
+    // Persisted in localStorage (not sessionStorage, since this is a
+    // device display preference, not tied to a login session) so it
+    // survives logout/login and browser restarts. The <head> script
+    // above applies the stored/OS-preferred theme before first paint;
+    // these functions are what the actual Settings toggle calls.
+    function getStoredTheme_() {
+      try {
+        return localStorage.getItem('coop_theme') || 'light';
+      } catch (e) {
+        return 'light';
+      }
+    }
+
+    function applyTheme_(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      try {
+        localStorage.setItem('coop_theme', theme);
+      } catch (e) { /* private browsing / storage disabled — theme still applies for this page load */ }
+    }
+
+    function toggleDarkMode(isDark) {
+      applyTheme_(isDark ? 'dark' : 'light');
+    }
+
+    // Shared "Appearance" section — identical on the Member Settings
+    // screen and the Admin Settings screen, so it's built in one place.
+    function appearanceSectionHtml_() {
+      const isDark = getStoredTheme_() === 'dark';
+      return '<div class="section"><h2>Appearance</h2>' +
+        '<div class="switch-row">' +
+        '<div class="nav-row-text"><div class="nav-title">Dark Mode</div><div class="nav-sub">Switch between light and dark appearance</div></div>' +
+        '<label class="switch"><input type="checkbox" id="darkModeToggle"' + (isDark ? ' checked' : '') + ' onchange="toggleDarkMode(this.checked)"><span class="switch-slider"></span></label>' +
+        '</div></div>';
+    }
+
+    // iOS-style 12-blade activity indicator, used everywhere a screen shows "Loading..."
+    function spinnerHTML() {
+      let blades = '';
+      for (let i = 0; i < 12; i++) blades += '<div class="spinner-blade"></div>';
+      return '<div class="spinner-wrap"><div class="spinner">' + blades + '</div></div>';
+    }
+
+    // Fades #app out, swaps its content, then fades back in — used for every
+    // full-screen navigation change (Section Transitions / page swaps).
+    // afterInsert runs right after the new HTML lands, for any DOM wiring
+    // (event listeners) that needs the new elements to already exist.
+    function swapApp(html, afterInsert) {
+      const app = document.getElementById('app');
+      app.style.opacity = '0';
+      setTimeout(function () {
+        app.innerHTML = html;
+        if (afterInsert) afterInsert();
+        void app.offsetWidth; // force reflow so the fade-in actually animates
+        app.style.opacity = '1';
+      }, 180);
+    }
+
+    // ---------- LOGIN ----------
+    function renderLogin() {
+      swapApp(
+        '<div class="center-screen"><div class="card">' +
+        '<div class="login-brand"><img src="/logo.png" class="login-logo" alt="Gee Tee logo"><h1>Gee Tee</h1></div>' +
+        '<form id="loginForm">' +
+        '<label for="username">Username</label>' +
+        '<input type="text" id="username" required autocomplete="username">' +
+        '<label for="password">Password</label>' +
+        '<div class="password-field">' +
+        '<input type="password" id="password" required autocomplete="current-password">' +
+        '<button type="button" class="password-toggle" id="passwordToggle" onclick="togglePasswordVisibility()" aria-label="Show password">' + ICONS.eye + '</button>' +
+        '</div>' +
+        '<button type="submit" id="submitBtn">Log In</button>' +
+        '<div id="error"></div>' +
+        '</form></div></div>',
+        function () {
+          document.getElementById('loginForm').addEventListener('submit', handleLogin);
+        }
+      );
+    }
+
+    function togglePasswordVisibility() {
+      const input = document.getElementById('password');
+      const btn = document.getElementById('passwordToggle');
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.innerHTML = ICONS.eyeOff;
+        btn.setAttribute('aria-label', 'Hide password');
+      } else {
+        input.type = 'password';
+        btn.innerHTML = ICONS.eye;
+        btn.setAttribute('aria-label', 'Show password');
+      }
+    }
+
+    function handleLogin(e) {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const btn = document.getElementById('submitBtn');
+      const errorEl = document.getElementById('error');
+      errorEl.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Signing in...';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false;
+          btn.textContent = 'Log In';
+          if (res.success) {
+            TOKEN = res.token; ROLE = res.role; NAME = res.fullName;
+            sessionStorage.setItem('coop_token', TOKEN);
+            sessionStorage.setItem('coop_role', ROLE);
+            sessionStorage.setItem('coop_name', NAME);
+            route();
+          } else {
+            errorEl.textContent = res.message || 'Login failed.';
+          }
+        })
+        .withFailureHandler(function () {
+          btn.disabled = false;
+          btn.textContent = 'Log In';
+          errorEl.textContent = 'Something went wrong. Please try again.';
+        })
+        .login(username, password);
+    }
+
+    // ---------- MEMBER DASHBOARD ----------
+    function renderMemberDashboard() {
+      swapApp(
+        '<div class="app-shell"><div class="topbar">' +
+        '<span>Hi, ' + NAME + '</span>' +
+        '<button class="link-btn" onclick="renderMemberSettings()">Settings</button>' +
+        '</div><div id="dashContent">' + spinnerHTML() + '</div></div>',
+        function () {
+          google.script.run
+            .withSuccessHandler(function (data) {
+              if (!data.success) { clearSession(); renderLogin(); return; }
+              renderDashboardContent(data);
+            })
+            .withFailureHandler(function () {
+              document.getElementById('dashContent').innerHTML = '<div class="err">Could not load dashboard.</div>';
+            })
+            .getMemberDashboardData(TOKEN);
+        }
+      );
+    }
+
+    function renderDashboardContent(data) {
+      let loansHtml = '<div class="empty">No loans on record.</div>';
+      if (data.loans.length) {
+        loansHtml = data.loans.map(function (l) {
+          let repayHtml = '<div class="empty">No payments recorded yet.</div>';
+          if (l.repayments.length) {
+            repayHtml = l.repayments.map(function (r) {
+              return '<div class="loan-row"><span>' + fmtDate(r.paymentDate) + ' &middot; ' + fmtMoney(r.amountPaid) + '</span>' +
+                '<span class="hint" style="margin:0">P ' + fmtMoney(r.principalPaid) + ' / I ' + fmtMoney(r.interestPaid) + '</span></div>';
+            }).join('');
+          }
+          let scheduleHtml = '';
+          if (l.schedule && l.schedule.length) {
+            scheduleHtml = '<div class="hint" style="margin-bottom:8px">Payment Schedule</div>' +
+              l.schedule.map(function (s) {
+                return '<div class="loan-row"><span>Payment ' + s.installment + ' &middot; ' + fmtDate(s.dueDate) + '</span>' +
+                  '<span class="badge ' + s.status + '">' + s.status + '</span></div>';
+              }).join('') + '<div style="height:12px"></div>';
+          }
+          return '<div class="loan-row" style="cursor:pointer" onclick="toggleLoanDetail(\'' + l.loanId + '\')">' +
+            '<span>' + fmtMoney(l.principal) + ' &middot; ' + l.tenureMonths + 'mo</span>' +
+            '<span class="badge ' + l.status + '">' + l.status + '</span>' +
+            '</div>' +
+            '<div id="loanDetail-' + l.loanId + '" style="display:none">' +
+            '<div class="calc-box">' +
+            '<div class="row"><span>Principal</span><span>' + fmtMoney(l.principal) + '</span></div>' +
+            '<div class="row"><span>Interest Rate</span><span>' + l.interestRate + '% / month</span></div>' +
+            '<div class="row"><span>Period</span><span>' + l.tenureMonths + ' months</span></div>' +
+            '<div class="row"><span>Monthly Amortization</span><span>' + fmtMoney(l.monthlyAmortization) + '</span></div>' +
+            '<div class="row total"><span>Remaining Balance</span><span>' + fmtMoney(l.remainingBalance) + '</span></div>' +
+            '</div>' +
+            (l.purpose ? '<div class="hint">Purpose: ' + l.purpose + '</div>' : '') +
+            scheduleHtml +
+            '<div class="hint" style="margin-bottom:8px">Payment Trail</div>' + repayHtml +
+            '</div>';
+        }).join('');
+      }
+
+      let divHtml = '<div class="empty">No dividends recorded yet.</div>';
+      if (data.dividendHistory.length) {
+        divHtml = data.dividendHistory.map(function (d) {
+          return '<div class="div-row"><span>' + d.year + '</span><span>' + fmtMoney(d.amount) + '</span></div>';
+        }).join('');
+      }
+
+      document.getElementById('dashContent').innerHTML =
+        '<div class="stat-grid">' +
+        '<div class="stat-card">' + iconChip('wallet', '#AF52DE') + '<div class="label">Total Contributions</div><div class="value">' + fmtMoney(data.totalContributions) + '</div></div>' +
+        '<div class="stat-card">' + iconChip('banknote', '#007AFF') + '<div class="label">Active Loan Balance</div><div class="value">' + fmtMoney(data.activeLoanBalance) + '</div></div>' +
+        '</div>' +
+        '<div class="section"><h2>My Loans</h2>' + loansHtml + '</div>' +
+        '<div class="section"><h2>Contributions</h2>' +
+        '<button onclick="renderContributionLedger()">View Contributions</button></div>' +
+        '<div class="section"><h2>Dividend History</h2>' + divHtml + '</div>';
+    }
+
+    function toggleLoanDetail(loanId) {
+      const el = document.getElementById('loanDetail-' + loanId);
+      el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+
+    // ---------- MEMBER: SETTINGS ----------
+    function renderMemberSettings() {
+      swapApp(
+        '<div class="app-shell"><div class="topbar">' +
+        '<button class="link-btn" onclick="renderMemberDashboard()">&larr; Back to Dashboard</button>' +
+        '</div><h2>Settings</h2>' +
+        appearanceSectionHtml_() +
+        '</div>'
+      );
+    }
+
+    // ---------- MEMBER: CONTRIBUTION LEDGER (view-only) ----------
+    function renderContributionLedger() {
+      swapApp(
+        '<div class="app-shell"><div class="topbar">' +
+        '<button class="link-btn" onclick="renderMemberDashboard()">&larr; Back to Dashboard</button>' +
+        '</div><div id="ledgerContent">' + spinnerHTML() + '</div></div>',
+        function () {
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (!res.success) { document.getElementById('ledgerContent').innerHTML = '<div class="err">' + res.message + '</div>'; return; }
+              renderLedgerContent(res.contributions);
+            })
+            .withFailureHandler(function () {
+              document.getElementById('ledgerContent').innerHTML = '<div class="err">Could not load your contributions.</div>';
+            })
+            .getMemberContributions(TOKEN);
+        }
+      );
+    }
+
+    function renderLedgerContent(contributions) {
+      let rowsHtml = '<div class="empty">No contributions logged yet.</div>';
+      if (contributions.length) {
+        rowsHtml = contributions.map(function (c) {
+          return '<div class="loan-row"><span>' + fmtDate(c.paymentDate) + ' &middot; ' + fmtMoney(c.amount) +
+            (c.reference ? ' &middot; ' + c.reference : '') + '</span>' +
+            (c.isWithdrawal
+              ? '<span class="badge Rejected">Withdrawal</span>'
+              : '<span class="badge Verified">Contribution</span>') +
+            '</div>';
+        }).join('');
+      }
+
+      document.getElementById('ledgerContent').innerHTML =
+        '<div class="section"><h2>Contribution History</h2>' + rowsHtml + '</div>';
+    }
+
+    // ---------- ADMIN HOME ----------
+    function renderAdminHome() {
+      swapApp(
+        '<div class="app-shell"><div class="topbar">' +
+        '<span>Admin &middot; ' + NAME + '</span>' +
+        '</div>' +
+        '<div id="adminStatsContent" style="margin-bottom:16px;">' + spinnerHTML() + '</div>' +
+        '<div class="nav-list">' +
+        '<div class="nav-row" onclick="renderAdminLoans()">' + iconChip('check', '#007AFF') + '<div class="nav-row-text"><div class="nav-title">Loans</div><div class="nav-sub">Create &amp; manage loans</div></div><span class="nav-row-chevron">' + ICONS.chevron + '</span></div>' +
+        '<div class="nav-row" onclick="renderLoanRepayments()">' + iconChip('banknote', '#34C759') + '<div class="nav-row-text"><div class="nav-title">Repayments</div><div class="nav-sub">Record loan payments</div></div><span class="nav-row-chevron">' + ICONS.chevron + '</span></div>' +
+        '<div class="nav-row" onclick="renderAdminContributions()">' + iconChip('wallet', '#AF52DE') + '<div class="nav-row-text"><div class="nav-title">Contributions</div><div class="nav-sub">Log member contributions</div></div><span class="nav-row-chevron">' + ICONS.chevron + '</span></div>' +
+        '<div class="nav-row" onclick="renderDividendCalculator()">' + iconChip('trending', '#FF9500') + '<div class="nav-row-text"><div class="nav-title">Dividends</div><div class="nav-sub">Year-end calculator</div></div><span class="nav-row-chevron">' + ICONS.chevron + '</span></div>' +
+        '<div class="nav-row" onclick="renderAdminSettings()">' + iconChip('settings', '#8E8E93') + '<div class="nav-row-text"><div class="nav-title">Settings</div><div class="nav-sub">Rates, dividend rules &amp; appearance</div></div><span class="nav-row-chevron">' + ICONS.chevron + '</span></div>' +
+        '<div class="nav-row" onclick="renderMemberDetails()">' + iconChip('users', '#5AC8FA') + '<div class="nav-row-text"><div class="nav-title">Member Details</div><div class="nav-sub">Add a new member login</div></div><span class="nav-row-chevron">' + ICONS.chevron + '</span></div>' +
+        '</div></div>',
+        function () {
+          loadAdminStats();
+        }
+      );
+    }
+
+    function loadAdminStats() {
+      const el = document.getElementById('adminStatsContent');
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res.success) { safeSetHTML(el, '<div class="hint" style="text-align:center;">Stats unavailable right now.</div>'); return; }
+          safeSetHTML(el, '<div class="stat-grid">' +
+            '<div class="stat-card">' + iconChip('wallet', '#34C759') + '<div class="label">Total Fund Balance</div><div class="value">' + fmtMoney(res.totalFundBalance) + '</div></div>' +
+            '<div class="stat-card">' + iconChip('banknote', '#FF9500') + '<div class="label">Outstanding Loans</div><div class="value">' + fmtMoney(res.totalOutstandingLoans) + '</div></div>' +
+            '<div class="stat-card">' + iconChip('check', '#007AFF') + '<div class="label">Active Loans</div><div class="value">' + res.activeLoansCount + '</div></div>' +
+            '<div class="stat-card">' + iconChip('users', '#AF52DE') + '<div class="label">Active Members</div><div class="value">' + res.activeMembersCount + '</div></div>' +
+            '</div>');
+        })
+        .withFailureHandler(function () {
+          safeSetHTML(el, '<div class="hint" style="text-align:center;">Stats unavailable right now.</div>');
+        })
+        .getAdminSummaryStats(TOKEN);
+    }
+
+    // ---------- ADMIN: LOAN APPROVALS ----------
+    let LOANS_CACHE = [];
+
+    // Default view: every loan across every member, sorted most-recent-first.
+    function renderAdminLoans() {
+      swapApp(
+        '<div class="app-shell"><div class="topbar">' +
+        '<button class="link-btn" onclick="renderAdminHome()">&larr; Back to Admin Home</button>' +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
+        '<h2 style="margin:0;">Loans</h2>' +
+        '<button type="button" class="circle-btn blue" onclick="renderCreateLoanForm()" aria-label="Create Loan">' + ICONS.plus + '</button>' +
+        '</div>' +
+        '<div id="loansListContent">' + spinnerHTML() + '</div></div>',
+        function () { loadLoansList(); }
+      );
+    }
+
+    function loadLoansList() {
+      const el = document.getElementById('loansListContent');
+      el.innerHTML = spinnerHTML();
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res.success) { safeSetHTML(el, '<div class="err">' + res.message + '</div>'); return; }
+          LOANS_CACHE = res.loans;
+          if (!res.loans.length) { safeSetHTML(el, '<div class="empty">No loans on record.</div>'); return; }
+          safeSetHTML(el, '<div class="section">' + res.loans.map(function (l) {
+            return '<div class="loan-row" style="cursor:pointer;" onclick="showLoanModal(\'' + l.loanId + '\')"><span>' +
+              '<strong>' + l.memberName + '</strong><br>' +
+              '<span class="hint" style="margin:0">' + fmtMoney(l.principal) + ' &middot; ' + l.tenureMonths + 'mo &middot; ' + fmtDate(l.dateApplied) + '</span>' +
+              '</span>' +
+              '<span class="badge ' + l.status + '">' + l.status + '</span>' +
+              '</div>';
+          }).join('') + '</div>');
+        })
+        .withFailureHandler(function () {
+          safeSetHTML(el, '<div class="err">Could not load loans.</div>');
+        })
+        .getAllLoans(TOKEN);
+    }
+
+    // ---------- Loan detail / edit modal ----------
+    function showLoanModal(loanId) {
+      const l = LOANS_CACHE.find(function (x) { return String(x.loanId) === String(loanId); });
+      if (!l) return;
+      const root = document.getElementById('modalRoot');
+      root.innerHTML =
+        '<div class="modal-overlay" id="modalOverlay">' +
+        '<div class="modal-card" style="text-align:left;position:relative;">' +
+        '<button type="button" class="icon-btn" id="modalCloseX" style="position:absolute;top:14px;right:14px;" aria-label="Close">' + ICONS.close + '</button>' +
+        '<h2 style="text-align:left;">Loan Details</h2>' +
+        '<div style="font-size:14px;line-height:1.9;margin-bottom:20px;">' +
+        '<div><span class="hint" style="margin:0">Date Applied</span><br>' + fmtDate(l.dateApplied) + '</div>' +
+        '<div style="margin-top:10px;"><span class="hint" style="margin:0">Loan Reference</span><br>' + l.loanId + '</div>' +
+        '<div style="margin-top:10px;"><span class="hint" style="margin:0">Member Name</span><br>' + l.memberName + '</div>' +
+        '<div style="margin-top:10px;"><span class="hint" style="margin:0">Principal</span><br><strong>' + fmtMoney(l.principal) + '</strong></div>' +
+        '<div style="margin-top:10px;"><span class="hint" style="margin:0">Interest Rate</span><br>' + l.interestRate + '% / month</div>' +
+        '<div style="margin-top:10px;"><span class="hint" style="margin:0">Tenure</span><br>' + l.tenureMonths + ' months</div>' +
+        '<div style="margin-top:10px;"><span class="hint" style="margin:0">First Payment Due</span><br>' + fmtDate(l.firstDueDate) + '</div>' +
+        '<div style="margin-top:10px;"><span class="hint" style="margin:0">Status</span><br><span class="badge ' + l.status + '">' + l.status + '</span></div>' +
+        '<div style="margin-top:10px;"><span class="hint" style="margin:0">Remaining Balance</span><br><strong>' + fmtMoney(l.remainingBalance) + '</strong></div>' +
+        (l.purpose ? '<div style="margin-top:10px;"><span class="hint" style="margin:0">Purpose</span><br>' + l.purpose + '</div>' : '') +
+        '</div>' +
+        '<div style="display:flex;gap:10px;">' +
+        '<button type="button" id="modalEditBtn" style="flex:1;">Edit</button>' +
+        '<button type="button" class="secondary" id="modalDeleteBtn" style="flex:1;margin-top:0;">Delete</button>' +
+        '</div>' +
+        '</div></div>';
+
+      document.getElementById('modalCloseX').onclick = closeModal;
+      document.getElementById('modalOverlay').addEventListener('click', function (e) {
+        if (e.target.id === 'modalOverlay') closeModal();
+      });
+      document.getElementById('modalEditBtn').onclick = function () { showEditLoanModal(loanId); };
+      document.getElementById('modalDeleteBtn').onclick = function () {
+        closeModal();
+        showConfirmModal({
+          title: 'Delete Loan',
+          message: 'Delete this loan (' + fmtMoney(l.principal) + ') for ' + l.memberName + '? This also permanently deletes every repayment recorded against it. This cannot be undone.',
+          confirmLabel: 'Delete',
+          danger: true,
+          onConfirm: function () {
+            google.script.run
+              .withSuccessHandler(function (res) {
+                if (res.success) { loadLoansList(); }
+                else { showInfoModal(res.message || 'Could not delete loan.', 'Error'); }
+              })
+              .withFailureHandler(function () { showInfoModal('Something went wrong. Please try again.', 'Error'); })
+              .deleteLoan(TOKEN, loanId);
+          }
+        });
+      };
+    }
+
+    function showEditLoanModal(loanId) {
+      const l = LOANS_CACHE.find(function (x) { return String(x.loanId) === String(loanId); });
+      if (!l) return;
+      const root = document.getElementById('modalRoot');
+      const dueVal = new Date(l.firstDueDate);
+      const dueStr = !isNaN(dueVal) ? dueVal.toISOString().split('T')[0] : '';
+
+      root.innerHTML =
+        '<div class="modal-overlay" id="modalOverlay">' +
+        '<div class="modal-card" style="text-align:left;position:relative;">' +
+        '<button type="button" class="icon-btn" id="modalCloseX" style="position:absolute;top:14px;right:14px;" aria-label="Close">' + ICONS.close + '</button>' +
+        '<h2 style="text-align:left;">Edit Loan</h2>' +
+        '<div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">' + l.memberName + '</div>' +
+        '<label>Loan Amount</label>' +
+        '<input type="text" inputmode="decimal" id="editLoanPrincipal" value="' + fmtMoney(l.principal) + '" oninput="formatAmountOnInput(event)">' +
+        '<label>Interest Rate (% per month)</label>' +
+        '<input type="number" id="editLoanRate" step="0.1" value="' + l.interestRate + '">' +
+        '<label>Tenure (months)</label>' +
+        '<input type="number" id="editLoanTenure" step="1" value="' + l.tenureMonths + '">' +
+        '<label>First Payment Due Date</label>' +
+        '<input type="date" id="editLoanFirstDue" value="' + dueStr + '">' +
+        '<label>Purpose (optional)</label>' +
+        '<input type="text" id="editLoanPurpose" value="' + (l.purpose || '').replace(/"/g, '&quot;') + '">' +
+        '<div class="hint">Editing recalculates the monthly amortization. If the new amount is already fully covered by past payments, the loan is automatically marked Paid.</div>' +
+        '<div id="editLoanError" class="err"></div>' +
+        '<div style="display:flex;gap:10px;margin-top:6px;">' +
+        '<button type="button" id="editLoanSaveBtn">Save Changes</button>' +
+        '<button type="button" class="secondary" id="editLoanCancelBtn">Cancel</button>' +
+        '</div>' +
+        '</div></div>';
+
+      document.getElementById('modalCloseX').onclick = closeModal;
+      document.getElementById('modalOverlay').addEventListener('click', function (e) {
+        if (e.target.id === 'modalOverlay') closeModal();
+      });
+      document.getElementById('editLoanCancelBtn').onclick = function () { showLoanModal(loanId); };
+      document.getElementById('editLoanSaveBtn').onclick = function () {
+        const principal = parseAmountValue('editLoanPrincipal');
+        const rate = document.getElementById('editLoanRate').value;
+        const tenure = document.getElementById('editLoanTenure').value;
+        const firstDue = document.getElementById('editLoanFirstDue').value;
+        const purpose = document.getElementById('editLoanPurpose').value;
+        const errEl = document.getElementById('editLoanError');
+        errEl.textContent = '';
+
+        if (!principal || Number(principal) <= 0) { errEl.textContent = 'Enter a valid loan amount.'; return; }
+        if (!tenure || Number(tenure) <= 0) { errEl.textContent = 'Enter a valid tenure.'; return; }
+        if (!firstDue) { errEl.textContent = 'Enter the first payment due date.'; return; }
+
+        const btn = document.getElementById('editLoanSaveBtn');
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+
+        google.script.run
+          .withSuccessHandler(function (res) {
+            if (res.success) {
+              closeModal();
+              loadLoansList();
+            } else {
+              btn.disabled = false;
+              btn.textContent = 'Save Changes';
+              errEl.textContent = res.message || 'Could not save changes.';
+            }
+          })
+          .withFailureHandler(function () {
+            btn.disabled = false;
+            btn.textContent = 'Save Changes';
+            errEl.textContent = 'Something went wrong. Please try again.';
+          })
+          .updateLoan(TOKEN, loanId, principal, rate, tenure, firstDue, purpose);
+      };
+    }
+
+    function renderCreateLoanForm() {
+      swapApp(
+        '<div class="app-shell"><div class="topbar">' +
+        '<button class="link-btn" onclick="renderAdminLoans()">&larr; Back to Loans</button>' +
+        '</div><h2>Create Loan</h2>' +
+        '<div id="loanAppContent">' + spinnerHTML() + '</div></div>',
+        function () {
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (!res.success) { safeSetHTML(document.getElementById('loanAppContent'), '<div class="err">' + res.message + '</div>'); return; }
+              if (!document.getElementById('loanAppContent')) return;
+              renderLoanApplicationContent(res.members, res.settings);
+            })
+            .withFailureHandler(function () {
+              safeSetHTML(document.getElementById('loanAppContent'), '<div class="err">Could not load loan setup.</div>');
+            })
+            .getLoanCreationConfig(TOKEN);
+        }
+      );
+    }
+
+    function renderLoanApplicationContent(members, settings) {
+      const minRate = Number(settings.InterestRate_Min.value);
+      const maxRate = Number(settings.InterestRate_Max.value);
+      const defaultRate = Number(settings.InterestRate_Default.value);
+      const options = members.map(function (m) {
+        return '<option value="' + m.memberId + '">' + m.fullName + '</option>';
+      }).join('');
+
+      document.getElementById('loanAppContent').innerHTML =
+        '<div class="section">' +
+        '<form id="loanAppForm">' +
+        '<label>Member</label>' +
+        '<select id="loanMember" required>' + options + '</select>' +
+        '<label>Loan Amount</label>' +
+        '<input type="text" inputmode="decimal" id="loanPrincipal" oninput="formatAmountOnInput(event)" required>' +
+        '<label>Interest Rate (% per month)</label>' +
+        '<input type="number" id="loanRate" min="' + minRate + '" max="' + maxRate + '" step="0.1" value="' + defaultRate + '" required>' +
+        '<div class="hint">Allowed range: ' + minRate + '% - ' + maxRate + '%</div>' +
+        '<label>Tenure (months)</label>' +
+        '<input type="number" id="loanTenure" min="1" step="1" value="6" required>' +
+        '<label>First Payment Due Date</label>' +
+        '<input type="date" id="loanFirstDue" required>' +
+        '<div class="hint">The rest of the schedule is generated automatically — same day of the month, one per month of tenure.</div>' +
+        '<label>Purpose (optional)</label>' +
+        '<input type="text" id="loanPurpose">' +
+        '<div id="loanAppCalcBox" class="calc-box"></div>' +
+        '<div id="loanScheduleBox"></div>' +
+        '<button type="submit" id="loanAppSubmitBtn">Create Loan</button>' +
+        '<div id="loanAppMsg" class="err"></div>' +
+        '</form></div>';
+
+      const principalEl = document.getElementById('loanPrincipal');
+      const rateEl = document.getElementById('loanRate');
+      const tenureEl = document.getElementById('loanTenure');
+      const firstDueEl = document.getElementById('loanFirstDue');
+      [principalEl, rateEl, tenureEl, firstDueEl].forEach(function (el) {
+        el.addEventListener('input', updateLoanAppCalcPreview);
+      });
+      updateLoanAppCalcPreview();
+
+      document.getElementById('loanAppForm').addEventListener('submit', submitAdminLoan);
+    }
+
+    // Mirrors the server's flat-rate formula AND schedule generation
+    // exactly, for instant feedback before submit.
+    function updateLoanAppCalcPreview() {
+      const principal = Number(parseAmountValue('loanPrincipal')) || 0;
+      const rate = Number(document.getElementById('loanRate').value) || 0;
+      const tenure = Number(document.getElementById('loanTenure').value) || 0;
+      const firstDue = document.getElementById('loanFirstDue').value;
+      const box = document.getElementById('loanAppCalcBox');
+      const scheduleBox = document.getElementById('loanScheduleBox');
+
+      if (!principal || !tenure) {
+        box.innerHTML = '<div class="empty">Enter amount and tenure to see estimated payments.</div>';
+        scheduleBox.innerHTML = '';
+        return;
+      }
+      const totalInterest = principal * (rate / 100) * tenure;
+      const totalPayable = principal + totalInterest;
+      const monthly = totalPayable / tenure;
+
+      box.innerHTML =
+        '<div class="row"><span>Total Interest</span><span>' + fmtMoney(totalInterest) + '</span></div>' +
+        '<div class="row"><span>Total Payable</span><span>' + fmtMoney(totalPayable) + '</span></div>' +
+        '<div class="row total"><span>Monthly Amortization</span><span>' + fmtMoney(monthly) + '</span></div>';
+
+      if (firstDue) {
+        const base = new Date(firstDue + 'T00:00:00');
+        let rows = '';
+        for (let i = 0; i < tenure; i++) {
+          const d = new Date(base.getFullYear(), base.getMonth() + i, base.getDate());
+          rows += '<div class="row"><span>Payment ' + (i + 1) + '</span><span>' + fmtDate(d) + '</span></div>';
+        }
+        scheduleBox.innerHTML = '<div class="calc-box" style="margin-top:10px;"><div class="hint" style="margin:0 0 4px;">Schedule Preview</div>' + rows + '</div>';
+      } else {
+        scheduleBox.innerHTML = '';
+      }
+    }
+
+    function submitAdminLoan(e) {
+      e.preventDefault();
+      const memberId = document.getElementById('loanMember').value;
+      const principal = parseAmountValue('loanPrincipal');
+      const rate = document.getElementById('loanRate').value;
+      const tenure = document.getElementById('loanTenure').value;
+      const purpose = document.getElementById('loanPurpose').value;
+      const firstDueDate = document.getElementById('loanFirstDue').value;
+      const btn = document.getElementById('loanAppSubmitBtn');
+      const msgEl = document.getElementById('loanAppMsg');
+      msgEl.textContent = '';
+      msgEl.style.color = '#FF3B30';
+      btn.disabled = true;
+      btn.textContent = 'Creating...';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false;
+          btn.textContent = 'Create Loan';
+          if (res.success) {
+            renderAdminLoans();
+          } else {
+            msgEl.textContent = res.message || 'Could not create loan.';
+          }
+        })
+        .withFailureHandler(function () {
+          btn.disabled = false;
+          btn.textContent = 'Create Loan';
+          msgEl.textContent = 'Something went wrong. Please try again.';
+        })
+        .createLoanForMember(TOKEN, memberId, principal, rate, tenure, purpose, firstDueDate);
+    }
+
+    // ---------- ADMIN: MEMBER DETAILS ----------
+    let EDITING_MEMBER_ID = null;
+    let MEMBERS_CACHE = [];
+
+    function renderMemberDetails() {
+      swapApp(
+        '<div class="app-shell"><div class="topbar">' +
+        '<button class="link-btn" onclick="renderAdminHome()">&larr; Back to Admin Home</button>' +
+        '</div><h2>Member Details</h2>' +
+        '<div class="section">' +
+        '<form id="memberForm">' +
+        '<label>Member Name</label>' +
+        '<input type="text" id="memberName" required>' +
+        '<label>Member ID</label>' +
+        '<input type="text" id="memberIdInput" required placeholder="e.g. 001">' +
+        '<label>Username</label>' +
+        '<input type="text" id="memberUsername" required autocomplete="off" placeholder="used to log in">' +
+        '<label>Email Address</label>' +
+        '<input type="email" id="memberEmail" required autocomplete="off" placeholder="for transaction alerts">' +
+        '<label>Password</label>' +
+        '<input type="password" id="memberPassword" required autocomplete="new-password" placeholder="min. 6 characters">' +
+        '<button type="submit" id="memberSubmitBtn">Add Member</button>' +
+        '<button type="button" class="secondary" id="memberCancelBtn" style="display:none" onclick="cancelEditMember()">Cancel Edit</button>' +
+        '<div id="memberFormMsg" class="err"></div>' +
+        '</form></div>' +
+        '<h2>Existing Members</h2>' +
+        '<div id="memberListContent">' + spinnerHTML() + '</div>' +
+        '<h2>Inactive Members</h2>' +
+        '<div id="inactiveMemberListContent">' + spinnerHTML() + '</div></div>',
+        function () {
+          document.getElementById('memberForm').addEventListener('submit', submitMemberForm);
+          loadMemberList();
+          loadInactiveMemberList();
+        }
+      );
+    }
+
+    function loadMemberList() {
+      const el = document.getElementById('memberListContent');
+      el.innerHTML = spinnerHTML();
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res.success) { safeSetHTML(el, '<div class="err">' + res.message + '</div>'); return; }
+          MEMBERS_CACHE = res.members;
+          if (!res.members.length) { safeSetHTML(el, '<div class="empty">No members yet.</div>'); return; }
+          safeSetHTML(el, '<div class="section">' + res.members.map(function (m) {
+            return '<div class="loan-row"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + m.fullName + ' <span class="hint" style="margin:0">(' + m.username + ')</span></span>' +
+              '<span style="display:flex;gap:6px;align-items:center;flex-shrink:0;">' +
+              '<button type="button" class="icon-btn" onclick="startEditMember(\'' + m.memberId + '\')" aria-label="Edit member">' + ICONS.pencil + '</button>' +
+              '<button type="button" class="icon-btn warn" onclick="confirmDeactivateMember(\'' + m.memberId + '\')" aria-label="Deactivate member">' + ICONS.userX + '</button>' +
+              '<button type="button" class="icon-btn danger" onclick="confirmPermanentDeleteMember(\'' + m.memberId + '\')" aria-label="Permanently delete member">' + ICONS.trash + '</button>' +
+              '</span></div>';
+          }).join('') + '</div>');
+        })
+        .withFailureHandler(function () {
+          safeSetHTML(el, '<div class="err">Could not load members.</div>');
+        })
+        .getActiveMembers(TOKEN);
+    }
+
+    function loadInactiveMemberList() {
+      const el = document.getElementById('inactiveMemberListContent');
+      el.innerHTML = spinnerHTML();
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res.success) { safeSetHTML(el, '<div class="err">' + res.message + '</div>'); return; }
+          if (!res.members.length) { safeSetHTML(el, '<div class="empty">No deactivated members.</div>'); return; }
+          safeSetHTML(el, '<div class="section">' + res.members.map(function (m) {
+            return '<div class="loan-row"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-secondary);">' + m.fullName + ' <span class="hint" style="margin:0">(' + m.username + ')</span></span>' +
+              '<button type="button" class="icon-btn success" onclick="reactivateMemberClick(\'' + m.memberId + '\', \'' + m.fullName.replace(/'/g, "\\'") + '\')" aria-label="Reactivate member">' + ICONS.restore + '</button>' +
+              '</div>';
+          }).join('') + '</div>');
+        })
+        .withFailureHandler(function () {
+          safeSetHTML(el, '<div class="err">Could not load inactive members.</div>');
+        })
+        .getInactiveMembers(TOKEN);
+    }
+
+    function reactivateMemberClick(memberId, fullName) {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res.success) {
+            loadMemberList();
+            loadInactiveMemberList();
+          } else {
+            showInfoModal(res.message || 'Could not reactivate member.', 'Error');
+          }
+        })
+        .withFailureHandler(function () {
+          showInfoModal('Something went wrong. Please try again.', 'Error');
+        })
+        .reactivateMember(TOKEN, memberId);
+    }
+
+    function startEditMember(memberId) {
+      const m = MEMBERS_CACHE.find(function (x) { return String(x.memberId) === String(memberId); });
+      if (!m) { showInfoModal('Could not find that member — try refreshing the list.', 'Error'); return; }
+      EDITING_MEMBER_ID = memberId;
+      document.getElementById('memberName').value = m.fullName;
+      document.getElementById('memberIdInput').value = m.memberId;
+      document.getElementById('memberIdInput').disabled = true;
+      document.getElementById('memberUsername').value = m.username;
+      document.getElementById('memberEmail').value = m.email;
+      document.getElementById('memberPassword').value = '';
+      document.getElementById('memberPassword').required = false;
+      document.getElementById('memberPassword').placeholder = 'Leave blank to keep current password';
+      document.getElementById('memberSubmitBtn').textContent = 'Save Changes';
+      document.getElementById('memberCancelBtn').style.display = 'block';
+      document.getElementById('memberFormMsg').textContent = '';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function cancelEditMember() {
+      EDITING_MEMBER_ID = null;
+      document.getElementById('memberForm').reset();
+      document.getElementById('memberIdInput').disabled = false;
+      document.getElementById('memberPassword').required = true;
+      document.getElementById('memberPassword').placeholder = 'min. 6 characters';
+      document.getElementById('memberSubmitBtn').textContent = 'Add Member';
+      document.getElementById('memberCancelBtn').style.display = 'none';
+      document.getElementById('memberFormMsg').textContent = '';
+    }
+
+    function confirmDeactivateMember(memberId) {
+      const m = MEMBERS_CACHE.find(function (x) { return String(x.memberId) === String(memberId); });
+      const name = m ? m.fullName : 'this member';
+
+      showConfirmModal({
+        title: 'Deactivate Member',
+        message: 'Deactivate ' + name + '? They will no longer be able to log in, but their record stays in the system — their contribution and loan history is fully preserved, and their name will keep showing correctly everywhere. Note: their Member ID, Username, and Email stay reserved and can\'t be reused for a new member while deactivated.',
+        confirmLabel: 'Deactivate',
+        danger: true,
+        onConfirm: function () {
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (res.success) {
+                if (EDITING_MEMBER_ID === memberId) cancelEditMember();
+                loadMemberList();
+              } else {
+                showInfoModal(res.message || 'Could not deactivate member.', 'Error');
+              }
+            })
+            .withFailureHandler(function () {
+              showInfoModal('Something went wrong. Please try again.', 'Error');
+            })
+            .deactivateMember(TOKEN, memberId);
+        }
+      });
+    }
+
+    function confirmPermanentDeleteMember(memberId) {
+      const m = MEMBERS_CACHE.find(function (x) { return String(x.memberId) === String(memberId); });
+      const name = m ? m.fullName : 'this member';
+
+      showConfirmModal({
+        title: 'Permanently Delete Member',
+        message: 'Permanently delete ' + name + '? This cannot be undone. Their Member ID, Username, and Email become free to reuse immediately. Their existing contribution and loan records stay in the sheets, but will no longer show their name — only their Member ID. Use Deactivate instead if you want to keep their full name/history intact.',
+        confirmLabel: 'Delete Permanently',
+        danger: true,
+        onConfirm: function () {
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (res.success) {
+                if (EDITING_MEMBER_ID === memberId) cancelEditMember();
+                loadMemberList();
+              } else {
+                showInfoModal(res.message || 'Could not delete member.', 'Error');
+              }
+            })
+            .withFailureHandler(function () {
+              showInfoModal('Something went wrong. Please try again.', 'Error');
+            })
+            .deleteMemberPermanently(TOKEN, memberId);
+        }
+      });
+    }
+
+    function submitMemberForm(e) {
+      e.preventDefault();
+      const fullName = document.getElementById('memberName').value;
+      const memberId = document.getElementById('memberIdInput').value;
+      const username = document.getElementById('memberUsername').value;
+      const email = document.getElementById('memberEmail').value;
+      const password = document.getElementById('memberPassword').value;
+      const btn = document.getElementById('memberSubmitBtn');
+      const msgEl = document.getElementById('memberFormMsg');
+      const isEdit = !!EDITING_MEMBER_ID;
+      msgEl.textContent = '';
+      msgEl.style.color = '#FF3B30';
+      btn.disabled = true;
+      btn.textContent = isEdit ? 'Saving...' : 'Adding...';
+
+      const onSuccess = function (res) {
+        btn.disabled = false;
+        btn.textContent = isEdit ? 'Save Changes' : 'Add Member';
+        if (res.success) {
+          msgEl.style.color = '#34C759';
+          msgEl.textContent = isEdit ? 'Member updated.' : 'Member added.';
+          if (isEdit) { cancelEditMember(); } else { document.getElementById('memberForm').reset(); }
+          loadMemberList();
+        } else {
+          msgEl.textContent = res.message || (isEdit ? 'Could not update member.' : 'Could not add member.');
+        }
+      };
+      const onFailure = function () {
+        btn.disabled = false;
+        btn.textContent = isEdit ? 'Save Changes' : 'Add Member';
+        msgEl.textContent = 'Something went wrong. Please try again.';
+      };
+
+      if (isEdit) {
+        google.script.run.withSuccessHandler(onSuccess).withFailureHandler(onFailure)
+          .updateMember(TOKEN, memberId, fullName, username, email, password);
+      } else {
+        google.script.run.withSuccessHandler(onSuccess).withFailureHandler(onFailure)
+          .createMember(TOKEN, fullName, memberId, username, email, password);
+      }
+    }
+
+    // ---------- ADMIN: LOAN REPAYMENTS ----------
+    function renderLoanRepayments() {
+      swapApp(
+        '<div class="app-shell"><div class="topbar">' +
+        '<button class="link-btn" onclick="renderAdminHome()">&larr; Back to Admin Home</button>' +
+        '</div><h2>Active Loans</h2>' +
+        '<div id="repayContent">' + spinnerHTML() + '</div></div>',
+        function () {
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (!res.success) { document.getElementById('repayContent').innerHTML = '<div class="err">' + res.message + '</div>'; return; }
+              renderRepaymentsList(res.loans);
+            })
+            .withFailureHandler(function () {
+              document.getElementById('repayContent').innerHTML = '<div class="err">Could not load active loans.</div>';
+            })
+            .getActiveLoansForRepayment(TOKEN);
+        }
+      );
+    }
+
+    function renderRepaymentsList(loans) {
+      const container = document.getElementById('repayContent');
+      if (!loans.length) {
+        container.innerHTML = '<div class="empty">No active loans right now.</div>';
+        return;
+      }
+
+      container.innerHTML = loans.map(function (l) {
+        const today = new Date().toISOString().split('T')[0];
+        return '<div class="section" id="loanRepay-' + l.loanId + '">' +
+          '<div class="approval-top">' +
+          '<div><strong>' + l.memberName + '</strong><div class="hint" style="margin:0">' +
+          l.interestRate + '%/mo &middot; ' + l.tenureMonths + ' months</div></div>' +
+          '<div class="badge Active">' + fmtMoney(l.remainingBalance) + ' left</div>' +
+          '</div>' +
+          '<div class="calc-box">' +
+          '<div class="row"><span>Original Principal</span><span>' + fmtMoney(l.principal) + '</span></div>' +
+          '<div class="row"><span>Monthly Amortization</span><span>' + fmtMoney(l.monthlyAmortization) + '</span></div>' +
+          '<div class="row total"><span>Remaining Balance</span><span>' + fmtMoney(l.remainingBalance) + '</span></div>' +
+          '</div>' +
+          (l.nextDueDate
+            ? '<div class="member-context">Next Due: <strong>' + fmtDate(l.nextDueDate) + '</strong> &middot; <span class="badge ' + l.nextDueStatus + '">' + l.nextDueStatus + '</span></div>'
+            : '') +
+          '<div class="approval-actions">' +
+          '<button onclick="toggleRepayForm(\'' + l.loanId + '\')">Record Payment</button>' +
+          '<button class="secondary" onclick="toggleRepayHistory(\'' + l.loanId + '\', ' + l.monthlyAmortization + ')">View History</button>' +
+          '</div>' +
+          '<div id="repayForm-' + l.loanId + '" style="display:none;margin-top:12px">' +
+          '<label>Amount Paid</label>' +
+          '<input type="text" inputmode="decimal" id="repayAmount-' + l.loanId + '" oninput="formatAmountOnInput(event)" value="' + fmtMoney(l.monthlyAmortization) + '">' +
+          '<label>Payment Date</label>' +
+          '<input type="date" id="repayDate-' + l.loanId + '" value="' + today + '">' +
+          '<button onclick="submitRepayment(\'' + l.loanId + '\')" id="repaySubmit-' + l.loanId + '">Save Payment</button>' +
+          '<div id="repayErr-' + l.loanId + '" class="err"></div>' +
+          '</div>' +
+          '<div id="repayHistory-' + l.loanId + '" style="display:none;margin-top:12px"></div>' +
+          '</div>';
+      }).join('');
+    }
+
+    function toggleRepayForm(loanId) {
+      const el = document.getElementById('repayForm-' + loanId);
+      el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function toggleRepayHistory(loanId) {
+      const el = document.getElementById('repayHistory-' + loanId);
+      if (el.style.display === 'block') { el.style.display = 'none'; return; }
+      el.style.display = 'block';
+      el.innerHTML = spinnerHTML();
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res.success) { el.innerHTML = '<div class="err">' + res.message + '</div>'; return; }
+          if (!res.history.length) { el.innerHTML = '<div class="empty">No payments recorded yet.</div>'; return; }
+          el.innerHTML = res.history.map(function (h) {
+            return '<div class="loan-row"><span>' + fmtDate(h.paymentDate) + ' &middot; ' + fmtMoney(h.amountPaid) + '</span>' +
+              '<span class="hint" style="margin:0">P ' + fmtMoney(h.principalPaid) + ' / I ' + fmtMoney(h.interestPaid) + '</span></div>';
+          }).join('');
+        })
+        .withFailureHandler(function () {
+          el.innerHTML = '<div class="err">Could not load payment history.</div>';
+        })
+        .getLoanRepaymentHistory(TOKEN, loanId);
+    }
+
+    function submitRepayment(loanId) {
+      const amount = parseAmountValue('repayAmount-' + loanId);
+      const date = document.getElementById('repayDate-' + loanId).value;
+      const btn = document.getElementById('repaySubmit-' + loanId);
+      const errEl = document.getElementById('repayErr-' + loanId);
+      errEl.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res.success) {
+            const card = document.getElementById('loanRepay-' + loanId);
+            if (res.loanPaidOff) {
+              card.innerHTML = '<div class="empty">Loan fully paid off! Refreshing...</div>';
+            } else {
+              card.innerHTML = '<div class="empty">Payment recorded. Remaining balance: ' + fmtMoney(res.remainingBalance) + '. Refreshing...</div>';
+            }
+            setTimeout(renderLoanRepayments, 900);
+          } else {
+            btn.disabled = false;
+            btn.textContent = 'Save Payment';
+            errEl.textContent = res.message || 'Could not record payment.';
+          }
+        })
+        .withFailureHandler(function () {
+          btn.disabled = false;
+          btn.textContent = 'Save Payment';
+          errEl.textContent = 'Something went wrong. Please try again.';
+        })
+        .recordRepayment(TOKEN, loanId, amount, date);
+    }
+
+    // ---------- ADMIN: CONTRIBUTIONS ----------
+    let BULK_ROWS = 0;
+    let ACTIVE_MEMBERS = [];
+
+    // Default view: the full transaction list, sorted by Date Transacted.
+    let TRANSACTIONS_CACHE = [];
+
+    function renderAdminContributions() {
+      swapApp(
+        '<div class="app-shell"><div class="topbar">' +
+        '<button class="link-btn" onclick="renderAdminHome()">&larr; Back to Admin Home</button>' +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
+        '<h2 style="margin:0;">Contributions</h2>' +
+        '<div style="display:flex;gap:8px;">' +
+        '<button type="button" class="circle-btn blue" onclick="renderAddContributionForm()" aria-label="Add Contribution">' + ICONS.plus + '</button>' +
+        '<button type="button" class="circle-btn gray" onclick="renderWithdrawForm()" aria-label="Withdraw">' + ICONS.minus + '</button>' +
+        '<button type="button" class="circle-btn green" onclick="renderStatementGenerator()" aria-label="Generate Statement">' + ICONS.fileText + '</button>' +
+        '</div></div>' +
+        '<div id="txnListContent">' + spinnerHTML() + '</div></div>',
+        function () {
+          loadTransactionList();
+        }
+      );
+    }
+
+    function loadTransactionList() {
+      const el = document.getElementById('txnListContent');
+      el.innerHTML = spinnerHTML();
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res.success) { safeSetHTML(el, '<div class="err">' + res.message + '</div>'); return; }
+          TRANSACTIONS_CACHE = res.transactions;
+          if (!res.transactions.length) { safeSetHTML(el, '<div class="empty">No transactions logged yet.</div>'); return; }
+          safeSetHTML(el, '<div class="section">' + res.transactions.map(function (t) {
+            return '<div class="loan-row" style="cursor:pointer;" onclick="showTransactionModal(\'' + t.transId + '\')"><span>' +
+              '<strong>' + t.memberName + '</strong><br>' +
+              '<span class="hint" style="margin:0">' + fmtDate(t.paymentDate) + ' &middot; Ref# ' + t.transId +
+              (t.reference ? ' &middot; ' + t.reference : '') + '</span>' +
+              '</span>' +
+              '<span style="font-weight:700;color:' + (t.isWithdrawal ? 'var(--ios-red)' : 'var(--ios-green)') + '">' + fmtMoney(t.amount) + '</span>' +
+              '</div>';
+          }).join('') + '</div>');
+        })
+        .withFailureHandler(function () {
+          safeSetHTML(el, '<div class="err">Could not load transactions.</div>');
+        })
+        .getAllContributionTransactions(TOKEN);
+    }
+
+    // ---------- Transaction detail / edit modal ----------
+    function showTransactionModal(transId) {
+      const t = TRANSACTIONS_CACHE.find(function (x) { return String(x.transId) === String(transId); });
+      if (!t) return;
+      const root = document.getElementById('modalRoot');
+      root.innerHTML =
+        '<div class="modal-overlay" id="modalOverlay">' +
+        '<div class="modal-card" style="text-align:left;position:relative;">' +
+        '<button type="button" class="icon-btn" id="modalCloseX" style="position:absolute;top:14px;right:14px;" aria-label="Close">' + ICONS.close + '</button>' +
+        '<h2 style="text-align:left;">Transaction Details</h2>' +
+        '<div style="font-size:14px;line-height:1.9;margin-bottom:20px;">' +
+        '<div><span class="hint" style="margin:0">Date Transacted</span><br>' + fmtDate(t.paymentDate) + '</div>' +
+        '<div style="margin-top:10px;"><span class="hint" style="margin:0">Transaction Number</span><br>' + t.transId + '</div>' +
+        '<div style="margin-top:10px;"><span class="hint" style="margin:0">Member Name</span><br>' + t.memberName + '</div>' +
+        '<div style="margin-top:10px;"><span class="hint" style="margin:0">Amount</span><br><strong style="color:' + (t.isWithdrawal ? 'var(--ios-red)' : 'var(--ios-green)') + '">' + fmtMoney(t.amount) + '</strong></div>' +
+        '</div>' +
+        '<div style="display:flex;gap:10px;">' +
+        '<button type="button" id="modalEditBtn" style="flex:1;">Edit</button>' +
+        '<button type="button" class="secondary" id="modalDeleteBtn" style="flex:1;margin-top:0;">Delete</button>' +
+        '</div>' +
+        '</div></div>';
+
+      document.getElementById('modalCloseX').onclick = closeModal;
+      document.getElementById('modalOverlay').addEventListener('click', function (e) {
+        if (e.target.id === 'modalOverlay') closeModal();
+      });
+      document.getElementById('modalEditBtn').onclick = function () { showEditTransactionModal(transId); };
+      document.getElementById('modalDeleteBtn').onclick = function () {
+        closeModal();
+        showConfirmModal({
+          title: 'Delete Transaction',
+          message: 'Delete this ' + (t.isWithdrawal ? 'withdrawal' : 'contribution') + ' of ' + fmtMoney(Math.abs(t.amount)) + ' for ' + t.memberName + '? This cannot be undone.',
+          confirmLabel: 'Delete',
+          danger: true,
+          onConfirm: function () {
+            google.script.run
+              .withSuccessHandler(function (res) {
+                if (res.success) { loadTransactionList(); }
+                else { showInfoModal(res.message || 'Could not delete transaction.', 'Error'); }
+              })
+              .withFailureHandler(function () { showInfoModal('Something went wrong. Please try again.', 'Error'); })
+              .deleteContributionTransaction(TOKEN, transId);
+          }
+        });
+      };
+    }
+
+    function showEditTransactionModal(transId) {
+      const t = TRANSACTIONS_CACHE.find(function (x) { return String(x.transId) === String(transId); });
+      if (!t) return;
+      const root = document.getElementById('modalRoot');
+      const magnitude = Math.abs(t.amount);
+      const dateVal = new Date(t.paymentDate);
+      const dateStr = !isNaN(dateVal) ? dateVal.toISOString().split('T')[0] : '';
+
+      root.innerHTML =
+        '<div class="modal-overlay" id="modalOverlay">' +
+        '<div class="modal-card" style="text-align:left;position:relative;">' +
+        '<button type="button" class="icon-btn" id="modalCloseX" style="position:absolute;top:14px;right:14px;" aria-label="Close">' + ICONS.close + '</button>' +
+        '<h2 style="text-align:left;">Edit Transaction</h2>' +
+        '<div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">' + t.memberName + ' &middot; ' + (t.isWithdrawal ? 'Withdrawal' : 'Contribution') + '</div>' +
+        '<label>Amount</label>' +
+        '<input type="text" inputmode="decimal" id="editAmount" value="' + fmtMoney(magnitude) + '" oninput="formatAmountOnInput(event)">' +
+        '<label>Date</label>' +
+        '<input type="date" id="editDate" value="' + dateStr + '">' +
+        '<label>Reference / Note</label>' +
+        '<input type="text" id="editReference" value="' + (t.reference || '').replace(/"/g, '&quot;') + '">' +
+        '<div id="editTxnError" class="err"></div>' +
+        '<div style="display:flex;gap:10px;margin-top:6px;">' +
+        '<button type="button" id="editSaveBtn">Save Changes</button>' +
+        '<button type="button" class="secondary" id="editCancelBtn">Cancel</button>' +
+        '</div>' +
+        '</div></div>';
+
+      document.getElementById('modalCloseX').onclick = closeModal;
+      document.getElementById('modalOverlay').addEventListener('click', function (e) {
+        if (e.target.id === 'modalOverlay') closeModal();
+      });
+      document.getElementById('editCancelBtn').onclick = function () { showTransactionModal(transId); };
+      document.getElementById('editSaveBtn').onclick = function () {
+        const amountMagnitude = Number(parseAmountValue('editAmount'));
+        const date = document.getElementById('editDate').value;
+        const reference = document.getElementById('editReference').value;
+        const errEl = document.getElementById('editTxnError');
+        errEl.textContent = '';
+
+        if (!amountMagnitude || amountMagnitude <= 0) { errEl.textContent = 'Enter a valid amount.'; return; }
+        if (!date) { errEl.textContent = 'Enter the date.'; return; }
+
+        const signedAmount = t.isWithdrawal ? -amountMagnitude : amountMagnitude;
+        const btn = document.getElementById('editSaveBtn');
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+
+        google.script.run
+          .withSuccessHandler(function (res) {
+            if (res.success) {
+              closeModal();
+              loadTransactionList();
+            } else {
+              btn.disabled = false;
+              btn.textContent = 'Save Changes';
+              errEl.textContent = res.message || 'Could not save changes.';
+            }
+          })
+          .withFailureHandler(function () {
+            btn.disabled = false;
+            btn.textContent = 'Save Changes';
+            errEl.textContent = 'Something went wrong. Please try again.';
+          })
+          .updateContributionTransaction(TOKEN, transId, signedAmount, date, reference);
+      };
+    }
+
+    // ---------- Add Contribution (its own screen now, not the default view) ----------
+    function renderAddContributionForm() {
+      swapApp(
+        '<div class="app-shell"><div class="topbar">' +
+        '<button class="link-btn" onclick="renderAdminContributions()">&larr; Back to Contributions</button>' +
+        '</div><h2>Add Contribution</h2>' +
+        '<div id="bulkPane">' + spinnerHTML() + '</div></div>',
+        function () { loadBulkLogForm(); }
+      );
+    }
+
+    function loadBulkLogForm() {
+      document.getElementById('bulkPane').innerHTML = spinnerHTML();
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res.success) { document.getElementById('bulkPane').innerHTML = '<div class="err">' + res.message + '</div>'; return; }
+          ACTIVE_MEMBERS = res.members;
+          BULK_ROWS = 0;
+          document.getElementById('bulkPane').innerHTML =
+            '<div class="section">' +
+            '<p class="hint">Record a contribution a member handed you or transferred, as soon as it comes in.</p>' +
+            '<div id="bulkRows"></div>' +
+            '<button class="secondary" type="button" onclick="addBulkRow()">+ Add Row</button>' +
+            '<button style="margin-top:10px" onclick="submitBulkLog()">Save</button>' +
+            '<div id="bulkError" class="err"></div>' +
+            '<div id="bulkSuccess" style="color:#34C759;font-size:13px;margin-top:8px"></div>' +
+            '</div>';
+          addBulkRow();
+        })
+        .withFailureHandler(function () {
+          document.getElementById('bulkPane').innerHTML = '<div class="err">Could not load members.</div>';
+        })
+        .getActiveMembers(TOKEN);
+    }
+
+    function addBulkRow() {
+      const idx = BULK_ROWS++;
+      const options = ACTIVE_MEMBERS.map(function (m) {
+        return '<option value="' + m.memberId + '">' + m.fullName + '</option>';
+      }).join('');
+      const row = document.createElement('div');
+      row.className = 'bulk-row';
+      row.id = 'bulkRow-' + idx;
+      row.innerHTML =
+        '<select id="bulkMember-' + idx + '">' + options + '</select>' +
+        '<input type="text" inputmode="decimal" id="bulkAmount-' + idx + '" placeholder="Amount" oninput="formatAmountOnInput(event)">' +
+        '<input type="date" id="bulkDate-' + idx + '">' +
+        '<input type="text" id="bulkRef-' + idx + '" placeholder="Ref (optional)">' +
+        '<button type="button" class="link-btn" onclick="document.getElementById(\'bulkRow-' + idx + '\').remove()">Remove</button>';
+      document.getElementById('bulkRows').appendChild(row);
+    }
+
+    function submitBulkLog() {
+      const rows = document.querySelectorAll('.bulk-row');
+      const errEl = document.getElementById('bulkError');
+      const successEl = document.getElementById('bulkSuccess');
+      errEl.textContent = '';
+      successEl.textContent = '';
+      if (!rows.length) { errEl.textContent = 'Add at least one row.'; return; }
+
+      const entries = [];
+      let valid = true;
+      rows.forEach(function (row) {
+        const idx = row.id.split('-')[1];
+        const memberId = document.getElementById('bulkMember-' + idx).value;
+        const amount = parseAmountValue('bulkAmount-' + idx);
+        const date = document.getElementById('bulkDate-' + idx).value;
+        const ref = document.getElementById('bulkRef-' + idx).value;
+        if (!memberId || !amount || !date) valid = false;
+        entries.push({ memberId: memberId, amount: amount, paymentDate: date, reference: ref });
+      });
+      if (!valid) { errEl.textContent = 'Every row needs a member, amount, and date.'; return; }
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res.success) {
+            renderAdminContributions();
+          } else {
+            errEl.textContent = res.message || 'Could not save entries.';
+          }
+        })
+        .withFailureHandler(function () {
+          errEl.textContent = 'Something went wrong. Please try again.';
+        })
+        .bulkLogContributions(TOKEN, entries);
+    }
+
+    // ---------- Withdraw Contribution (its own screen) ----------
+    function renderWithdrawForm() {
+      swapApp(
+        '<div class="app-shell"><div class="topbar">' +
+        '<button class="link-btn" onclick="renderAdminContributions()">&larr; Back to Contributions</button>' +
+        '</div><h2>Withdraw Contribution</h2>' +
+        '<div id="withdrawPane">' + spinnerHTML() + '</div></div>',
+        function () { loadWithdrawForm(); }
+      );
+    }
+
+    let WITHDRAW_MEMBERS = [];
+
+    function loadWithdrawForm() {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res.success) { document.getElementById('withdrawPane').innerHTML = '<div class="err">' + res.message + '</div>'; return; }
+          WITHDRAW_MEMBERS = res.members;
+          const memberOptions = res.members.map(function (m) {
+            return '<option value="' + m.memberId + '">' + m.fullName + '</option>';
+          }).join('');
+          document.getElementById('withdrawPane').innerHTML =
+            '<div class="section">' +
+            '<p class="hint">Withdrawals are full-balance only — there\'s no partial withdrawal option.</p>' +
+            '<label>Member</label>' +
+            '<select id="withdrawMember" onchange="updateWithdrawBalanceDisplay()">' + memberOptions + '</select>' +
+            '<div class="calc-box" style="margin:10px 0"><div class="row total"><span>Current balance</span><span id="withdrawBalanceDisplay"></span></div></div>' +
+            '<label>Date</label>' +
+            '<input type="date" id="withdrawDate">' +
+            '<label>Note (optional)</label>' +
+            '<input type="text" id="withdrawNote" placeholder="e.g. reason for withdrawal">' +
+            '<button onclick="submitWithdrawal()" id="withdrawBtn">Withdraw Full Balance</button>' +
+            '<div id="withdrawError" class="err"></div>' +
+            '<div id="withdrawSuccess" style="color:#34C759;font-size:13px;margin-top:8px"></div>' +
+            '</div>';
+          updateWithdrawBalanceDisplay();
+        })
+        .withFailureHandler(function () {
+          document.getElementById('withdrawPane').innerHTML = '<div class="err">Could not load members.</div>';
+        })
+        .getActiveMembers(TOKEN);
+    }
+
+    function updateWithdrawBalanceDisplay() {
+      const memberId = document.getElementById('withdrawMember').value;
+      const member = WITHDRAW_MEMBERS.find(function (m) { return String(m.memberId) === String(memberId); });
+      const balance = member ? member.contributionBalance : 0;
+      document.getElementById('withdrawBalanceDisplay').textContent = fmtMoney(balance);
+      const btn = document.getElementById('withdrawBtn');
+      if (btn) btn.disabled = !balance || balance <= 0;
+    }
+
+    function submitWithdrawal() {
+      const memberId = document.getElementById('withdrawMember').value;
+      const date = document.getElementById('withdrawDate').value;
+      const note = document.getElementById('withdrawNote').value;
+      const btn = document.getElementById('withdrawBtn');
+      const errEl = document.getElementById('withdrawError');
+      const successEl = document.getElementById('withdrawSuccess');
+      errEl.textContent = '';
+      successEl.textContent = '';
+
+      if (!memberId || !date) {
+        errEl.textContent = 'Select a member and date.';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Processing...';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res.success) {
+            renderAdminContributions();
+          } else {
+            btn.disabled = false;
+            btn.textContent = 'Withdraw Full Balance';
+            errEl.textContent = res.message || 'Could not process withdrawal.';
+          }
+        })
+        .withFailureHandler(function () {
+          btn.disabled = false;
+          btn.textContent = 'Withdraw Full Balance';
+          errEl.textContent = 'Something went wrong. Please try again.';
+        })
+        .withdrawContribution(TOKEN, memberId, date, note);
+    }
+
+    // ---------- Statement of Contribution generator ----------
+    function renderStatementGenerator() {
+      swapApp(
+        '<div class="app-shell"><div class="topbar">' +
+        '<button class="link-btn" onclick="renderAdminContributions()">&larr; Back to Contributions</button>' +
+        '</div><h2>Generate Statement</h2>' +
+        '<div id="statementPane">' + spinnerHTML() + '</div></div>',
+        function () { loadStatementForm(); }
+      );
+    }
+
+    function loadStatementForm() {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res.success) { document.getElementById('statementPane').innerHTML = '<div class="err">' + res.message + '</div>'; return; }
+          const memberOptions = res.members.map(function (m) {
+            return '<option value="' + m.memberId + '">' + m.fullName + '</option>';
+          }).join('');
+          document.getElementById('statementPane').innerHTML =
+            '<div class="section">' +
+            '<label>Member</label>' +
+            '<select id="stmtMember">' + memberOptions + '</select>' +
+            '<label>From (optional)</label>' +
+            '<input type="date" id="stmtFrom">' +
+            '<label>To (optional)</label>' +
+            '<input type="date" id="stmtTo">' +
+            '<div class="hint">Leave both dates blank for the member\'s full history.</div>' +
+            '<button onclick="generateStatement()" id="stmtGenerateBtn">Generate Statement</button>' +
+            '<div id="stmtError" class="err"></div>' +
+            '</div>';
+        })
+        .withFailureHandler(function () {
+          document.getElementById('statementPane').innerHTML = '<div class="err">Could not load members.</div>';
+        })
+        .getActiveMembers(TOKEN);
+    }
+
+    function generateStatement() {
+      const memberId = document.getElementById('stmtMember').value;
+      const from = document.getElementById('stmtFrom').value;
+      const to = document.getElementById('stmtTo').value;
+      const btn = document.getElementById('stmtGenerateBtn');
+      const errEl = document.getElementById('stmtError');
+      errEl.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Generating...';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false;
+          btn.textContent = 'Generate Statement';
+          if (!res.success) { errEl.textContent = res.message || 'Could not generate statement.'; return; }
+          renderStatementView(res, from, to);
+        })
+        .withFailureHandler(function () {
+          btn.disabled = false;
+          btn.textContent = 'Generate Statement';
+          errEl.textContent = 'Something went wrong. Please try again.';
+        })
+        .getMemberStatementData(TOKEN, memberId, from, to);
+    }
+
+    function renderStatementView(data, from, to) {
+      const periodLabel = (from || to)
+        ? (from ? fmtDate(from) : 'the beginning') + ' to ' + (to ? fmtDate(to) : 'today')
+        : 'All Time';
+
+      let rowsHtml = '<tr><td colspan="4" style="padding:12px 4px;text-align:center;color:var(--text-tertiary);">No transactions in this period.</td></tr>';
+      if (data.transactions.length) {
+        rowsHtml = data.transactions.map(function (t) {
+          return '<tr>' +
+            '<td style="padding:8px 4px;border-bottom:1px solid var(--hairline);">' + fmtDate(t.paymentDate) + '</td>' +
+            '<td style="padding:8px 4px;border-bottom:1px solid var(--hairline);">' + t.transId +
+            (t.reference ? '<br><span class="hint" style="margin:0">' + t.reference + '</span>' : '') + '</td>' +
+            '<td style="padding:8px 4px;border-bottom:1px solid var(--hairline);text-align:right;">' + fmtMoney(t.amount) + '</td>' +
+            '<td style="padding:8px 4px;border-bottom:1px solid var(--hairline);text-align:right;">' + fmtMoney(t.runningBalance) + '</td>' +
+            '</tr>';
+        }).join('');
+      }
+
+      const openingRow = (from && data.openingBalance !== 0)
+        ? '<tr><td colspan="3" style="padding:8px 4px;border-bottom:1px solid var(--hairline);font-style:italic;color:var(--text-secondary);">Opening Balance</td>' +
+          '<td style="padding:8px 4px;border-bottom:1px solid var(--hairline);text-align:right;font-style:italic;color:var(--text-secondary);">' + fmtMoney(data.openingBalance) + '</td></tr>'
+        : '';
+
+      swapApp(
+        '<div class="app-shell">' +
+        '<div class="topbar no-print">' +
+        '<button class="link-btn" onclick="renderStatementGenerator()">&larr; New Statement</button>' +
+        '<button onclick="window.print()" style="width:auto;padding:8px 16px;">Save as PDF</button>' +
+        '</div>' +
+        '<div class="section">' +
+        '<div style="text-align:center;margin-bottom:20px;">' +
+        '<div style="font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.06em;">Finance Sinking Fund</div>' +
+        '<h1 style="margin:4px 0;font-size:22px;">Statement of Contribution</h1>' +
+        '</div>' +
+        '<div style="font-size:14px;margin-bottom:16px;">' +
+        '<div><strong>' + data.memberName + '</strong> &middot; Member ID ' + data.memberId + '</div>' +
+        '<div class="hint" style="margin:4px 0 0">Period: ' + periodLabel + '</div>' +
+        '</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
+        '<thead><tr style="text-align:left;border-bottom:2px solid var(--hairline);">' +
+        '<th style="padding:8px 4px;">Date</th><th style="padding:8px 4px;">Reference</th>' +
+        '<th style="padding:8px 4px;text-align:right;">Amount</th><th style="padding:8px 4px;text-align:right;">Balance</th>' +
+        '</tr></thead><tbody>' + openingRow + rowsHtml + '</tbody>' +
+        '<tfoot><tr style="border-top:2px solid var(--hairline);font-weight:700;">' +
+        '<td colspan="3" style="padding:10px 4px;">Closing Balance</td>' +
+        '<td style="padding:10px 4px;text-align:right;">' + fmtMoney(data.closingBalance) + '</td>' +
+        '</tr></tfoot></table>' +
+        '<p class="hint" style="margin-top:20px;margin-bottom:0;">Generated on ' + fmtDate(new Date()) + '.</p>' +
+        '</div></div>'
+      );
+    }
+
+    // ---------- ADMIN: SETTINGS ----------
+    var SETTINGS_FIELDS = [
+      { group: 'Loan Rules', key: 'InterestRate_Default', label: 'Default Interest Rate (% / month)', type: 'number', step: '0.1' },
+      { group: 'Loan Rules', key: 'InterestRate_Min', label: 'Minimum Interest Rate (% / month)', type: 'number', step: '0.1' },
+      { group: 'Loan Rules', key: 'InterestRate_Max', label: 'Maximum Interest Rate (% / month)', type: 'number', step: '0.1' },
+      { group: 'Loan Rules', key: 'MaxLoanMultipleOfContributions', label: 'Max Loan = this x Total Contributions', type: 'number', step: '1' },
+      { group: 'Dividend Rules', key: 'DividendMethod', label: 'Dividend Calculation Method', type: 'select', options: ['AVERAGE_MONTHLY_BALANCE'] },
+      { group: 'Dividend Rules', key: 'DividendPoolPercent', label: 'Dividend Pool (% of Net Earnings)', type: 'number', step: '1' },
+      { group: 'Dividend Rules', key: 'MinTenureMonthsForDividend', label: 'Min. Membership Months for Dividend Eligibility', type: 'number', step: '1' },
+      { group: 'Session', key: 'SessionLengthHours', label: 'Login Session Length (hours)', type: 'number', step: '1' }
+    ];
+
+    function renderAdminSettings() {
+      swapApp(
+        '<div class="app-shell"><div class="topbar">' +
+        '<button class="link-btn" onclick="renderAdminHome()">&larr; Back to Admin Home</button>' +
+        '</div><h2>Settings</h2>' +
+        appearanceSectionHtml_() +
+        '<div id="settingsContent">' + spinnerHTML() + '</div></div>',
+        function () {
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (!res.success) { document.getElementById('settingsContent').innerHTML = '<div class="err">' + res.message + '</div>'; return; }
+              renderSettingsForm(res.settings);
+            })
+            .withFailureHandler(function () {
+              document.getElementById('settingsContent').innerHTML = '<div class="err">Could not load settings.</div>';
+            })
+            .getSettingsForAdmin(TOKEN);
+        }
+      );
+    }
+
+    function renderSettingsForm(settings) {
+      const groups = {};
+      SETTINGS_FIELDS.forEach(function (f) {
+        if (!groups[f.group]) groups[f.group] = [];
+        groups[f.group].push(f);
+      });
+
+      let html = '<form id="settingsForm">';
+      Object.keys(groups).forEach(function (groupName) {
+        html += '<div class="section"><h2>' + groupName + '</h2>';
+        groups[groupName].forEach(function (f) {
+          const current = settings[f.key] ? settings[f.key].value : '';
+          const desc = settings[f.key] ? settings[f.key].description : '';
+          html += '<label>' + f.label + '</label>';
+          if (f.type === 'select') {
+            html += '<select id="setting-' + f.key + '">' +
+              f.options.map(function (o) {
+                return '<option value="' + o + '"' + (o === current ? ' selected' : '') + '>' + o + '</option>';
+              }).join('') + '</select>';
+          } else {
+            html += '<input type="number" id="setting-' + f.key + '" step="' + f.step + '" value="' + current + '">';
+          }
+          if (desc) html += '<div class="hint">' + desc + '</div>';
+        });
+        html += '</div>';
+      });
+      html += '<button type="submit" id="settingsSaveBtn">Save Settings</button>' +
+        '<div id="settingsSaved" class="err"></div></form>';
+
+      document.getElementById('settingsContent').innerHTML = html;
+      document.getElementById('settingsForm').addEventListener('submit', saveSettings);
+    }
+
+    function saveSettings(e) {
+      e.preventDefault();
+      const updates = {};
+      SETTINGS_FIELDS.forEach(function (f) {
+        const el = document.getElementById('setting-' + f.key);
+        updates[f.key] = f.type === 'select' ? el.value : Number(el.value);
+      });
+
+      const btn = document.getElementById('settingsSaveBtn');
+      const msgEl = document.getElementById('settingsSaved');
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      msgEl.textContent = '';
+      msgEl.style.color = '#A63446';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false;
+          btn.textContent = 'Save Settings';
+          if (res.success) {
+            msgEl.style.color = '#3F6B4F';
+            msgEl.textContent = 'Saved.';
+          } else {
+            msgEl.textContent = res.message || 'Could not save settings.';
+          }
+        })
+        .withFailureHandler(function () {
+          btn.disabled = false;
+          btn.textContent = 'Save Settings';
+          msgEl.textContent = 'Something went wrong. Please try again.';
+        })
+        .updateSettings(TOKEN, updates);
+    }
+
+    // ---------- ADMIN: DIVIDEND CALCULATOR ----------
+    let LAST_DIVIDEND_CALC = null;
+
+    function renderDividendCalculator() {
+      const defaultYear = new Date().getFullYear() - 1;
+      swapApp(
+        '<div class="app-shell"><div class="topbar">' +
+        '<button class="link-btn" onclick="renderAdminHome()">&larr; Back to Admin Home</button>' +
+        '</div><h2>Year-End Dividend Calculator</h2>' +
+        '<div class="section">' +
+        '<label>Year</label>' +
+        '<input type="number" id="divYear" value="' + defaultYear + '" step="1">' +
+        '<div class="hint">The earnings pool (GoTyme bank interest + loan interest collected) is calculated automatically for this year\'s period — no manual entry needed.</div>' +
+        '<button onclick="previewDividends()" id="previewBtn">Preview Calculation</button>' +
+        '<div id="divError" class="err"></div>' +
+        '</div>' +
+        '<div id="divResults"></div></div>'
+      );
+    }
+
+    function previewDividends() {
+      const year = document.getElementById('divYear').value;
+      const errEl = document.getElementById('divError');
+      const btn = document.getElementById('previewBtn');
+      errEl.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Calculating...';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false;
+          btn.textContent = 'Preview Calculation';
+          if (!res.success) { errEl.textContent = res.message || 'Could not calculate.'; return; }
+          LAST_DIVIDEND_CALC = { year: year };
+          renderDividendResults(res, year);
+        })
+        .withFailureHandler(function () {
+          btn.disabled = false;
+          btn.textContent = 'Preview Calculation';
+          errEl.textContent = 'Something went wrong. Please try again.';
+        })
+        .previewDividendCalculation(TOKEN, year);
+    }
+
+    function renderDividendResults(res, year) {
+      let rowsHtml = '<div class="empty">No eligible members.</div>';
+      if (res.results.length) {
+        rowsHtml = '<div class="loan-row" style="font-weight:700;color:#888;font-size:11px">' +
+          '<span>MEMBER</span><span>SHARE / DIVIDEND</span></div>' +
+          res.results.map(function (r) {
+            return '<div class="loan-row"><span>' + r.memberName +
+              '<div class="hint" style="margin:0">time-weighted avg ' + fmtMoney(r.avgBalance) + ' &middot; ' + r.sharePercent.toFixed(2) + '%</div></span>' +
+              '<span style="font-weight:700">' + fmtMoney(r.dividendAmount) + '</span></div>';
+          }).join('');
+      }
+
+      let excludedHtml = '';
+      if (res.excluded.length) {
+        excludedHtml = '<div class="section"><h2>Not Eligible</h2>' +
+          res.excluded.map(function (x) {
+            return '<div class="loan-row"><span>' + x.memberName + '</span><span class="hint" style="margin:0">' + x.reason + '</span></div>';
+          }).join('') + '</div>';
+      }
+
+      document.getElementById('divResults').innerHTML =
+        '<div class="calc-box" style="margin-bottom:16px">' +
+        '<div class="hint" style="margin:0 0 8px">Period: ' + fmtDate(res.periodStart) + ' &ndash; ' + fmtDate(res.periodEnd) + ' (' + res.bankInterest.days + ' days)</div>' +
+        '<div class="row"><span>GoTyme Interest (gross)</span><span>' + fmtMoney(res.bankInterest.grossInterest) + '</span></div>' +
+        '<div class="row"><span>Withholding Tax</span><span>&minus;' + fmtMoney(res.bankInterest.withholdingTax) + '</span></div>' +
+        '<div class="row"><span>GoTyme Interest (net)</span><span>' + fmtMoney(res.bankInterest.netInterest) + '</span></div>' +
+        '<div class="row"><span>Loan Interest Collected</span><span>' + fmtMoney(res.loanInterest) + '</span></div>' +
+        '<div class="row"><span>Combined Earnings</span><span>' + fmtMoney(res.combinedEarnings) + '</span></div>' +
+        '<div class="row total"><span>Dividend Pool</span><span>' + fmtMoney(res.poolAmount) + '</span></div>' +
+        '</div>' +
+        '<div class="calc-box" style="margin-bottom:16px">' +
+        '<div class="row"><span>Total Time-Weighted Balance (all eligible members)</span><span>' + fmtMoney(res.totalShareSum) + '</span></div>' +
+        '<div class="row total"><span>Eligible Members</span><span>' + res.results.length + '</span></div>' +
+        '</div>' +
+        '<div class="section">' + rowsHtml + '</div>' +
+        excludedHtml +
+        '<button id="commitBtn" onclick="checkAndCommitDividends()">Save to Dividends Sheet</button>' +
+        '<div id="commitError" class="err"></div>';
+    }
+
+    function checkAndCommitDividends() {
+      const year = LAST_DIVIDEND_CALC.year;
+      google.script.run
+        .withSuccessHandler(function (statusRes) {
+          if (!statusRes.success) { document.getElementById('commitError').textContent = statusRes.message; return; }
+          let msg = 'Save these dividend amounts to the Dividends sheet for ' + year + '?';
+          if (statusRes.exists) {
+            msg = 'There are already ' + statusRes.count + ' dividend record(s) for ' + year +
+              '. Saving will REPLACE them with this calculation. Continue?';
+          }
+          showConfirmModal({
+            title: 'Save Dividends',
+            message: msg,
+            confirmLabel: 'Save',
+            danger: statusRes.exists,
+            onConfirm: commitDividends
+          });
+        })
+        .withFailureHandler(function () {
+          document.getElementById('commitError').textContent = 'Could not check existing records.';
+        })
+        .getDividendYearStatus(TOKEN, year);
+    }
+
+    function commitDividends() {
+      const btn = document.getElementById('commitBtn');
+      const errEl = document.getElementById('commitError');
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      errEl.textContent = '';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res.success) {
+            btn.textContent = 'Saved';
+            errEl.style.color = '#3F6B4F';
+            errEl.textContent = 'Saved dividends for ' + res.count + ' member(s).';
+          } else {
+            btn.disabled = false;
+            btn.textContent = 'Save to Dividends Sheet';
+            errEl.textContent = res.message || 'Could not save.';
+          }
+        })
+        .withFailureHandler(function () {
+          btn.disabled = false;
+          btn.textContent = 'Save to Dividends Sheet';
+          errEl.textContent = 'Something went wrong. Please try again.';
+        })
+        .commitDividendCalculation(TOKEN, LAST_DIVIDEND_CALC.year);
+    }
+  </script>
+</body>
+</html>
