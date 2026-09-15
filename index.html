@@ -893,11 +893,14 @@
       let rowsHtml = '<div class="empty">No contributions logged yet.</div>';
       if (contributions.length) {
         rowsHtml = contributions.map(function (c) {
-          return '<div class="loan-row"><span>' + fmtDate(c.paymentDate) + ' &middot; ' + fmtMoney(c.amount) +
-            (c.reference ? ' &middot; ' + c.reference : '') + '</span>' +
-            (c.isWithdrawal
-              ? '<span class="badge Rejected">Withdrawal</span>'
-              : '<span class="badge Verified">Contribution</span>') +
+          return '<div class="loan-row">' +
+            '<span>' + fmtDate(c.paymentDate) +
+            (c.reference ? '<div class="hint" style="margin:0">' + c.reference + '</div>' : '') +
+            '</span>' +
+            '<span style="text-align:right">' +
+            '<div style="font-weight:700' + (c.isWithdrawal ? ';color:var(--ios-red)' : '') + '">' + fmtMoney(c.amount) + '</div>' +
+            (c.isWithdrawal ? '<span class="badge Rejected" style="margin-top:4px;display:inline-block">Withdrawal</span>' : '') +
+            '</span>' +
             '</div>';
         }).join('');
       }
